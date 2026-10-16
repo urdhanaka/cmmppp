@@ -1,1 +1,5 @@
+# javascript related
 node_modules
+
+# direnv+nix related
+.direnv
