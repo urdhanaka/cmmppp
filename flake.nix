@@ -17,13 +17,6 @@
         system,
         ...
       }: {
-        packages.default = pkgs.buildGoModule {
-          pname = "cmmppp";
-          version = "0.1.0";
-          src = ./backend;
-          vendorHash = null;
-        };
-
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             # backend
