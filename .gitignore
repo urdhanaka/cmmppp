@@ -3,3 +3,6 @@ node_modules
 
 # direnv+nix related
 .direnv
+
+# environment file
+config.yaml

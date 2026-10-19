@@ -3,21 +3,22 @@ package server
 import (
 	"net/http"
 
+	"cmmppp/internal/api/v1/routes"
+	"cmmppp/internal/config"
+
 	"github.com/go-chi/chi/v5"
 )
 
-func NewRouter() http.Handler {
+func newRouter(deps config.Deps) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("You found me!"))
-	})
+	routes.RegisterRoutes(r, deps)
 
 	return r
 }
 
-func Run() {
-	router := NewRouter()
+func Run(deps config.Deps) {
+	router := newRouter(deps)
 
 	http.ListenAndServe(":8000", router)
 }

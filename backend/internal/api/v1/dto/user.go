@@ -1,0 +1,39 @@
+package dto
+
+import (
+	"time"
+
+	"cmmppp/internal/entities"
+
+	"github.com/google/uuid"
+)
+
+// UserResponse is the HTTP-facing shape of a user — deliberately excludes
+// Password and other internal-only fields from entities.User.
+type UserResponse struct {
+	ID              uuid.UUID `json:"id"`
+	UserID          string    `json:"user_id"`
+	Email           string    `json:"email"`
+	IsPlatformAdmin bool      `json:"is_platform_admin"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+func NewUserResponse(u entities.User) UserResponse {
+	return UserResponse{
+		ID:              u.ID,
+		UserID:          u.UserID,
+		Email:           u.Email,
+		IsPlatformAdmin: u.IsPlatformAdmin,
+		CreatedAt:       u.CreatedAt,
+	}
+}
+
+func NewUserResponses(users []entities.User) []UserResponse {
+	resp := make([]UserResponse, len(users))
+
+	for i, u := range users {
+		resp[i] = NewUserResponse(u)
+	}
+
+	return resp
+}

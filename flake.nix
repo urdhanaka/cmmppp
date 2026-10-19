@@ -22,6 +22,7 @@
             # backend
             go_1_27
             gopls
+            goose
             golangci-lint
             delve
 
