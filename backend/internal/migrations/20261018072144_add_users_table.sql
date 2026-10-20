@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
   email TEXT NOT NULL,
   password TEXT NOT NULL,
-  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
   is_platform_admin BOOLEAN DEFAULT FALSE,
   created_by TEXT NOT NULL DEFAULT 'SYSTEM',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users (deleted_at);
+CREATE INDEX IF NOT EXISTS idx_users_id ON users (id);
 
 -- +goose Down
 -- delete users table

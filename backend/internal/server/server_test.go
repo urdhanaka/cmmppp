@@ -1,11 +1,10 @@
 package server
 
 import (
+	"cmmppp/internal/config"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"cmmppp/internal/config"
 )
 
 func TestRoot(t *testing.T) {

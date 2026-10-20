@@ -42,6 +42,7 @@ func BindEnv(v *viper.Viper) {
 	v.AutomaticEnv()
 
 	v.BindEnv("port", "PORT")
+	v.BindEnv("env", "ENV")
 	v.BindEnv("database.host", "DATABASE_HOST")
 	v.BindEnv("database.port", "DATABASE_PORT")
 	v.BindEnv("database.user", "DATABASE_USER")

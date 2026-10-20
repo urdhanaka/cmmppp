@@ -1,4 +1,4 @@
-.PHONY: build test lint migrate-up migrate-down
+.PHONY: build test lint migrate-up migrate-down docs-v1
 
 DATABASE_URL ?= postgres://postgres:postgres@localhost:5432/cmp?sslmode=disable
 
@@ -16,3 +16,6 @@ migrate-up:
 
 migrate-down:
 	cd backend && goose -dir internal/migrations postgres "$(DATABASE_URL)" down
+
+docs-v1:
+	cd backend && swag init -g internal/api/v1/routes/doc.go --parseInternal -o docs/v1

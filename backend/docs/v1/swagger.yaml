@@ -1,0 +1,45 @@
+basePath: /api/v1
+definitions:
+  dto.UserResponse:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: string
+      is_platform_admin:
+        type: boolean
+      user_id:
+        type: string
+    type: object
+host: localhost:8000
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: Swagger documentation of CMP API.
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Swagger CMP API
+  version: "1.0"
+paths:
+  /users:
+    get:
+      description: Get all users without pagination
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/dto.UserResponse'
+            type: array
+      summary: Get all users without pagination
+      tags:
+      - users
+swagger: "2.0"

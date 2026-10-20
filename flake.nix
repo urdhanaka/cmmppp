@@ -24,6 +24,7 @@
             gopls
             goose
             golangci-lint
+            go-swag
             delve
 
             # frontend

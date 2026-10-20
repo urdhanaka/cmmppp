@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -18,6 +19,12 @@ func NewUserHandler(repo repositories.UserRepository) *UserHandler {
 	return &UserHandler{repo: repo}
 }
 
+// @Summary		Get all users without pagination
+// @Description	Get all users without pagination
+// @Tags		users
+// @Produce		json
+// @Success		200	{array}	dto.UserResponse
+// @Router		/users [get]
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
@@ -27,6 +34,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		PageSize: pageSize,
 	})
 	if err != nil {
+		slog.ErrorContext(r.Context(), "failed to fetch users", "err", err)
 		http.Error(w, "failed to fetch users", http.StatusInternalServerError)
 		return
 	}
@@ -35,6 +43,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.ErrorContext(r.Context(), "failed to encode response", "err", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 }

@@ -1,9 +1,10 @@
 package store
 
 import (
-	"cmmppp/internal/config"
 	"fmt"
 	"time"
+
+	"cmmppp/internal/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -11,7 +12,7 @@ import (
 
 func NewDB(config config.EnvConfig) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=prefer",
 		config.Database.Host, config.Database.Port, config.Database.User, config.Database.Pass, config.Database.Name,
 	)
 

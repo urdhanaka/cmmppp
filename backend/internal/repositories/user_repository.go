@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 
 	"cmmppp/internal/entities"
 	"cmmppp/pkg/utils"
@@ -9,10 +10,13 @@ import (
 	"gorm.io/gorm"
 )
 
+var ErrUserNotFound = errors.New("user not found")
+
 type (
 	UserRepository interface {
 		GetAllUsers(ctx context.Context) ([]entities.User, error)
 		GetUsersPaginated(ctx context.Context, p utils.Pagination) (utils.PaginatedData[entities.User], error)
+		GetUserByEmail(ctx context.Context, email string) (*entities.User, error)
 	}
 
 	userRepository struct {
@@ -28,6 +32,19 @@ func NewUserRepository(db *gorm.DB) UserRepository {
 
 func (r *userRepository) GetAllUsers(ctx context.Context) ([]entities.User, error) {
 	return gorm.G[entities.User](r.db).Find(ctx)
+}
+
+func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*entities.User, error) {
+	user, err := gorm.G[entities.User](r.db).Where("email = ?", email).First(ctx)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
+		}
+
+		return nil, err
+	}
+
+	return &user, nil
 }
 
 func (r *userRepository) GetUsersPaginated(

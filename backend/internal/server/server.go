@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
 	"cmmppp/internal/api/v1/routes"
@@ -12,6 +13,8 @@ import (
 func newRouter(deps config.Deps) *chi.Mux {
 	r := chi.NewRouter()
 
+	r.Use(loggingMiddleware)
+
 	routes.RegisterRoutes(r, deps)
 
 	return r
@@ -20,5 +23,7 @@ func newRouter(deps config.Deps) *chi.Mux {
 func Run(deps config.Deps) {
 	router := newRouter(deps)
 
-	http.ListenAndServe(":8000", router)
+	if err := http.ListenAndServe(":8000", router); err != nil {
+		fmt.Println(err)
+	}
 }
