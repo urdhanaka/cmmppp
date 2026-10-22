@@ -1,9 +1,8 @@
 package main
 
 import (
-	"log"
-
 	"cmmppp/internal/config"
+	"log"
 )
 
 func main() {

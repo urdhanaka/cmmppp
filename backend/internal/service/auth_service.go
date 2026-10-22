@@ -1,12 +1,11 @@
 package service
 
 import (
-	"context"
-	"errors"
-
 	"cmmppp/internal/auth"
 	"cmmppp/internal/repositories"
 	"cmmppp/pkg/utils"
+	"context"
+	"errors"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")

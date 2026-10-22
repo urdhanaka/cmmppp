@@ -1,10 +1,9 @@
 package dto
 
 import (
+	"cmmppp/internal/entities"
 	"errors"
 	"time"
-
-	"cmmppp/internal/entities"
 
 	"github.com/google/uuid"
 )

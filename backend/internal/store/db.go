@@ -1,10 +1,9 @@
 package store
 
 import (
+	"cmmppp/internal/config"
 	"fmt"
 	"time"
-
-	"cmmppp/internal/config"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

@@ -9,5 +9,8 @@ CREATE TABLE IF NOT EXISTS customers (
   deleted_at TIMESTAMP
 );
 
+-- insert dummy customer data
+INSERT INTO customers (customer_name) VALUES ('PT. Dummy Bersama');
+
 -- +goose Down
 DROP TABLE IF EXISTS customers;

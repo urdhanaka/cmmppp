@@ -1,14 +1,13 @@
 package handler
 
 import (
+	"cmmppp/internal/api/v1/dto"
+	"cmmppp/internal/repositories"
+	"cmmppp/pkg/utils"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strconv"
-
-	"cmmppp/internal/api/v1/dto"
-	"cmmppp/internal/repositories"
-	"cmmppp/pkg/utils"
 )
 
 type UserHandler struct {

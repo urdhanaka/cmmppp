@@ -1,9 +1,8 @@
 package dto
 
 import (
-	"time"
-
 	"cmmppp/internal/entities"
+	"time"
 
 	"github.com/google/uuid"
 )

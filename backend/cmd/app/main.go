@@ -1,13 +1,12 @@
 package main
 
 import (
-	"log/slog"
-	"os"
-
 	"cmmppp/internal/config"
 	"cmmppp/internal/logger"
 	"cmmppp/internal/server"
 	"cmmppp/internal/store"
+	"log/slog"
+	"os"
 )
 
 func main() {

@@ -5,7 +5,15 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL,
   password TEXT NOT NULL,
   name TEXT NOT NULL,
+  
+  -- user roles (engineer, devops, etc) is defined in another table
+  -- because a user can have many different roles
+  -- based on the project/customer, but user 
+  -- that has access as the platform admin can only
+  -- be platform admin, so is_platform_admin column determines
+  -- if a user is platform admin and is located on users table
   is_platform_admin BOOLEAN DEFAULT FALSE,
+
   created_by TEXT NOT NULL DEFAULT 'SYSTEM',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP,
