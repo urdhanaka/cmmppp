@@ -1,4 +1,4 @@
-package auth
+package config
 
 import (
 	"errors"
@@ -22,10 +22,11 @@ type TokenManager struct {
 	issuer string
 }
 
-func NewTokenManager(secret string, expiry time.Duration) *TokenManager {
+func NewTokenManager(config EnvConfig) *TokenManager {
 	return &TokenManager{
-		secret: []byte(secret),
-		expiry: expiry,
+		secret: []byte(config.JWT.Secret),
+		expiry: 30 * time.Minute,
+		issuer: "Cloud Management Platform",
 	}
 }
 

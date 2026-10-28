@@ -1,7 +1,7 @@
-package service
+package services
 
 import (
-	"cmmppp/internal/auth"
+	"cmmppp/internal/config"
 	"cmmppp/internal/repositories"
 	"cmmppp/pkg/utils"
 	"context"
@@ -17,11 +17,11 @@ type (
 
 	authService struct {
 		userRepo     repositories.UserRepository
-		tokenManager *auth.TokenManager
+		tokenManager *config.TokenManager
 	}
 )
 
-func NewAuthService(userRepo repositories.UserRepository, tokenManager *auth.TokenManager) AuthService {
+func NewAuthService(userRepo repositories.UserRepository, tokenManager *config.TokenManager) AuthService {
 	return &authService{
 		userRepo:     userRepo,
 		tokenManager: tokenManager,

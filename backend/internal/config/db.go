@@ -1,7 +1,6 @@
-package store
+package config
 
 import (
-	"cmmppp/internal/config"
 	"fmt"
 	"time"
 
@@ -9,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func NewDB(config config.EnvConfig) (*gorm.DB, error) {
+func NewDB(config EnvConfig) (*gorm.DB, error) {
 	dsn := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=prefer",
 		config.Database.Host, config.Database.Port, config.Database.User, config.Database.Pass, config.Database.Name,

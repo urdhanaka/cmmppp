@@ -1,18 +1,18 @@
-package handler
+package handlers
 
 import (
 	"cmmppp/internal/api/v1/dto"
-	"cmmppp/internal/service"
+	"cmmppp/internal/services"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 )
 
 type CustomerHandler struct {
-	service service.CustomerService
+	service services.CustomerService
 }
 
-func NewCustomerHandler(service service.CustomerService) *CustomerHandler {
+func NewCustomerHandler(service services.CustomerService) *CustomerHandler {
 	return &CustomerHandler{service: service}
 }
 

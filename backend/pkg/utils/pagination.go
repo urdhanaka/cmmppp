@@ -17,6 +17,16 @@ type (
 	}
 )
 
+// instead of writing this normalization everytime, call this method
+func (p Pagination) Normalize() {
+	if p.Page < 1 {
+		p.Page = 1
+	}
+	if p.PageSize < 1 {
+		p.PageSize = DEFAULT_PAGE_SIZE
+	}
+}
+
 func NewPaginatedData[T any](data []T, total int64, page int, pageSize int) PaginatedData[T] {
 	return PaginatedData[T]{
 		Data:       data,

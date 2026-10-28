@@ -9,10 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
-var ErrUserNotFound = errors.New("user not found")
+var (
+	ErrUserNotFound = errors.New("user not found")
+	ErrEmailExists  = errors.New("email already exists")
+)
 
 type (
 	UserRepository interface {
+		PostUser(ctx context.Context, user *entities.User) error
 		GetAllUsers(ctx context.Context) ([]entities.User, error)
 		GetUsersPaginated(ctx context.Context, p utils.Pagination) (utils.PaginatedData[entities.User], error)
 		GetUserByEmail(ctx context.Context, email string) (*entities.User, error)
@@ -46,16 +50,19 @@ func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*ent
 	return &user, nil
 }
 
+func (r *userRepository) PostUser(ctx context.Context, user *entities.User) error {
+	if err := gorm.G[entities.User](r.db).Create(ctx, user); err != nil {
+		return errorMapper(err)
+	}
+
+	return nil
+}
+
 func (r *userRepository) GetUsersPaginated(
 	ctx context.Context,
 	p utils.Pagination,
 ) (utils.PaginatedData[entities.User], error) {
-	if p.Page < 1 {
-		p.Page = 1
-	}
-	if p.PageSize < 1 {
-		p.PageSize = utils.DEFAULT_PAGE_SIZE
-	}
+	p.Normalize()
 
 	total, err := gorm.G[entities.User](r.db).Count(ctx, "*")
 	if err != nil {
@@ -71,10 +78,5 @@ func (r *userRepository) GetUsersPaginated(
 		return utils.PaginatedData[entities.User]{}, err
 	}
 
-	return utils.PaginatedData[entities.User]{
-		Data:       users,
-		TotalCount: total,
-		Page:       p.Page,
-		PageSize:   p.PageSize,
-	}, nil
+	return utils.NewPaginatedData(users, total, p.Page, p.PageSize), nil
 }

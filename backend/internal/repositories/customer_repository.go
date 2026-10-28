@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"cmmppp/internal/entities"
+	"cmmppp/pkg/utils"
 	"context"
 	"errors"
 
@@ -14,6 +15,7 @@ type (
 	CustomerRepository interface {
 		PostCustomer(ctx context.Context, customer *entities.Customer) error
 		GetAllCustomers(ctx context.Context) ([]entities.Customer, error)
+		GetCustomersPaginated(ctx context.Context, p utils.Pagination) (utils.PaginatedData[entities.Customer], error)
 		DeleteCustomer(ctx context.Context, customer *entities.Customer) error
 	}
 
@@ -30,6 +32,29 @@ func NewCustomerRepository(db *gorm.DB) CustomerRepository {
 
 func (r *customerRepository) PostCustomer(ctx context.Context, customer *entities.Customer) error {
 	return gorm.G[entities.Customer](r.db).Create(ctx, customer)
+}
+
+func (r *customerRepository) GetCustomersPaginated(
+	ctx context.Context,
+	p utils.Pagination,
+) (utils.PaginatedData[entities.Customer], error) {
+	p.Normalize()
+
+	total, err := gorm.G[entities.Customer](r.db).Count(ctx, "*")
+	if err != nil {
+		return utils.PaginatedData[entities.Customer]{}, err
+	}
+
+	customers, err := gorm.G[entities.Customer](r.db).
+		Order("created_at").
+		Limit(p.PageSize).
+		Offset((p.Page - 1) * p.PageSize).
+		Find(ctx)
+	if err != nil {
+		return utils.PaginatedData[entities.Customer]{}, err
+	}
+
+	return utils.NewPaginatedData(customers, total, p.Page, p.PageSize), nil
 }
 
 func (r *customerRepository) GetAllCustomers(ctx context.Context) ([]entities.Customer, error) {

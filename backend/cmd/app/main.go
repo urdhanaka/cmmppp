@@ -4,7 +4,6 @@ import (
 	"cmmppp/internal/config"
 	"cmmppp/internal/logger"
 	"cmmppp/internal/server"
-	"cmmppp/internal/store"
 	"log/slog"
 	"os"
 )
@@ -12,17 +11,22 @@ import (
 func main() {
 	slog.SetDefault(logger.New())
 
-	cfg, err := config.New()
+	cfg, err := config.NewConfig()
 	if err != nil {
 		slog.Error("failed to load config", "err", err)
 		os.Exit(1)
 	}
 
-	db, err := store.NewDB(*cfg)
+	db, err := config.NewDB(*cfg)
 	if err != nil {
 		slog.Error("failed to connect to database", "err", err)
 		os.Exit(1)
 	}
 
-	server.Run(config.Deps{DB: db})
+	tokenManager := config.NewTokenManager(*cfg)
+
+	server.Run(config.Deps{
+		DB:           db,
+		TokenManager: tokenManager,
+	})
 }

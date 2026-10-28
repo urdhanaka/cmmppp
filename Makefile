@@ -11,6 +11,8 @@ test:
 lint:
 	cd backend && golangci-lint run
 
+# example:
+# make migrate-new SQL_NAME=add_azure_clouds_table
 migrate-new:
 	@if [ -z "$(SQL_NAME)" ]; then \
 		echo "Error: SQL_NAME is required. Usage: make migrate-new SQL_NAME=<NEW_SQL_FILENAME>"; \

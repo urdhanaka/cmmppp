@@ -12,7 +12,8 @@ import (
 // (Redis, Kafka, ...) and wire it in cmd/server/server.go — no router
 // rewiring needed elsewhere.
 type Deps struct {
-	DB *gorm.DB
+	DB           *gorm.DB
+	TokenManager *TokenManager
 }
 
 // EnvConfig struct holds the application configuration mappings
@@ -27,7 +28,9 @@ type EnvConfig struct {
 	} `mapstructure:"database"`
 
 	// JWT configuration
-	JWT struct{}
+	JWT struct {
+		Secret string `mapstructure:"secret"`
+	} `mapstructure:"jwt"`
 
 	// Port that will be used by the backend
 	Port int `mapstructure:"port"`
@@ -48,6 +51,7 @@ func BindEnv(v *viper.Viper) {
 	v.BindEnv("database.user", "DATABASE_USER")
 	v.BindEnv("database.pass", "DATABASE_PASS")
 	v.BindEnv("database.name", "DATABASE_NAME")
+	v.BindEnv("jwt.secret", "JWT_SECRET")
 }
 
 func Load(v *viper.Viper) (*EnvConfig, error) {
@@ -59,12 +63,12 @@ func Load(v *viper.Viper) (*EnvConfig, error) {
 	return cfg, nil
 }
 
-// New builds the application config from config.yaml (local-dev
+// NewConfig builds the application config from config.yaml (local-dev
 // convenience) and environment variables (App Settings on Azure App
 // Service), and returns it. Call it once at each composition root
 // (cmd/app, cmd/database, ...) and pass the result down via constructors —
 // don't fetch it through a package-level getter from arbitrary call sites.
-func New() (*EnvConfig, error) {
+func NewConfig() (*EnvConfig, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	v.SetConfigName("config")

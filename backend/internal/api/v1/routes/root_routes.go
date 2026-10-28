@@ -1,10 +1,9 @@
 package routes
 
 import (
+	"cmmppp/internal/config"
 	"net/http"
 	"os"
-
-	"cmmppp/internal/config"
 
 	_ "cmmppp/docs/v1"
 
@@ -25,6 +24,7 @@ func RegisterRoutes(router *chi.Mux, deps config.Deps) {
 			))
 		}
 
+		registerAuthRoutes(r, deps)
 		registerUserRoutes(r, deps)
 		registerCustomerRoutes(r, deps)
 	})

@@ -2,7 +2,10 @@
 -- create users table
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
-  email TEXT NOT NULL,
+
+  -- email and password will be used
+  -- as the credential
+  email TEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
   name TEXT NOT NULL,
   
@@ -14,7 +17,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- if a user is platform admin and is located on users table
   is_platform_admin BOOLEAN DEFAULT FALSE,
 
-  created_by TEXT NOT NULL DEFAULT 'SYSTEM',
+  created_by TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP,
   updated_by TEXT,

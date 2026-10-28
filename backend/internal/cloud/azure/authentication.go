@@ -9,12 +9,18 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 )
 
+// cachedToken struct holds information about the token and
+// the expires time. This is useful so the token can be reused
+// instead of fetching it again from azure (avoiding the rate
+// limiting implemented by azure)
 type cachedToken struct {
 	token     string
 	expiresOn time.Time
 }
 
 var (
+	// tokenCache maps the clientId into the cachedToken struct.
+	// clientId is unique
 	tokenCache   = map[string]cachedToken{}
 	tokenCacheMu sync.RWMutex
 )

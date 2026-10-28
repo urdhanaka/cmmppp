@@ -7,7 +7,7 @@ func TestHash_Valid(t *testing.T) {
 
 	testPassword := "TestString!23"
 
-	hashedBytes, err := HashPassword(testPassword, 12)
+	hashedBytes, err := HashPassword(testPassword)
 	if err != nil {
 		t.Fatalf("HashPassword returned error: %v", err)
 	}

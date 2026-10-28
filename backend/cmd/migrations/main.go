@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.New()
+	cfg, err := config.NewConfig()
 	if err != nil {
 		log.Fatalf("ERR: Failed to load config: %v", err)
 	}

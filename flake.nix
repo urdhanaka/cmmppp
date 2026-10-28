@@ -9,14 +9,13 @@
   outputs = inputs @ {flake-parts, ...}:
     flake-parts.lib.mkFlake {inherit inputs;} {
       systems = ["x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin"];
-      perSystem = {
-        config,
-        self',
-        inputs',
-        pkgs,
-        system,
-        ...
-      }: {
+      perSystem = {system, ...}: let
+        pkgs = import inputs.nixpkgs {
+          inherit system;
+          config.allowBroken = true;
+        };
+      in {
+        _module.args.pkgs = pkgs;
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             # backend
@@ -38,7 +37,7 @@
             # AWS and GCP is not yet started
             # awscli2
             # google-cloud-sdk
-            azure-cli
+            # azure-cli
           ];
         };
       };

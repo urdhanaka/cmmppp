@@ -10,10 +10,17 @@ import (
 
 var errCustomerNameRequired = errors.New("customer_name is required")
 
-// CreateCustomerRequest is the request body for POST /customers.
-type CreateCustomerRequest struct {
-	CustomerName string `json:"customer_name"`
-}
+type (
+	CreateCustomerRequest struct {
+		CustomerName string `json:"customer_name"`
+	}
+
+	CustomerResponse struct {
+		ID           uuid.UUID `json:"id"`
+		CustomerName string    `json:"customer_name"`
+		CreatedAt    time.Time `json:"created_at"`
+	}
+)
 
 func (r CreateCustomerRequest) Validate() error {
 	if r.CustomerName == "" {
@@ -27,13 +34,6 @@ func (r CreateCustomerRequest) ToEntity() entities.Customer {
 	return entities.Customer{
 		CustomerName: r.CustomerName,
 	}
-}
-
-// CustomerResponse is the HTTP-facing shape of a customer.
-type CustomerResponse struct {
-	ID           uuid.UUID `json:"id"`
-	CustomerName string    `json:"customer_name"`
-	CreatedAt    time.Time `json:"created_at"`
 }
 
 func NewCustomerResponse(c entities.Customer) CustomerResponse {

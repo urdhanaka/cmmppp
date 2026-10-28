@@ -6,3 +6,5 @@ database:
   user: postgres
   pass: postgres
   name: cmp
+jwt:
+  secret: "SecretIsMyLife!1234567890"

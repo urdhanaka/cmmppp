@@ -1,4 +1,4 @@
-package service
+package services
 
 import (
 	"cmmppp/internal/entities"
@@ -19,7 +19,7 @@ type (
 
 func NewCustomerService(repo repositories.CustomerRepository) CustomerService {
 	return &customerService{
-		repo,
+		repo: repo,
 	}
 }
 

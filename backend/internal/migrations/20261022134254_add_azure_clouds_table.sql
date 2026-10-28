@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS azure_clouds (
   customer_id UUID NOT NULL,
   tenant_id UUID NOT NULL,
   domain_name TEXT NOT NULL,
-  created_by TEXT NOT NULL DEFAULT 'SYSTEM',
+
+  created_by TEXT NOT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP,
   updated_by TEXT,
