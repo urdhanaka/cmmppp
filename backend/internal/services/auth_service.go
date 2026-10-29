@@ -1,11 +1,12 @@
 package services
 
 import (
+	"context"
+	"errors"
+
 	"cmmppp/internal/config"
 	"cmmppp/internal/repositories"
 	"cmmppp/pkg/utils"
-	"context"
-	"errors"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
@@ -32,8 +33,6 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 	user, err := s.userRepo.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repositories.ErrUserNotFound) {
-			// Same error as a wrong password below — don't let a caller
-			// distinguish "no such account" from "wrong password".
 			return "", ErrInvalidCredentials
 		}
 

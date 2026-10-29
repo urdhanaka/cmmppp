@@ -1,5 +1,6 @@
 <script lang="ts">
   import { apiPost } from "$lib/api";
+  import { login } from "$lib/auth";
 
   let email = "";
   let password = "";
@@ -13,13 +14,17 @@
 
     try {
       // Backend returns token (see auth handler). Adjust if it returns { token: ... }
-      const res = await apiPost<string | { token: string }>("/auth/login", {
-        email,
-        password,
-      });
+      const res = await apiPost<string | { data: { token: string } }>(
+        "/api/v1/login",
+        {
+          email,
+          password,
+        },
+      );
 
-      const t = typeof res === "string" ? res : res.token;
+      const t = typeof res === "string" ? res : res.data.token;
       if (!t) throw new Error("No token returned");
+      login(t);
     } catch (err) {
       error = err instanceof Error ? err.message : "Login failed";
     } finally {

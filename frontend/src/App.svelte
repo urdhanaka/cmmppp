@@ -1,8 +1,9 @@
 <script>
-  import { route } from "$lib/router";
-  import Login from "./routes/Login.svelte";
+  import { Router } from "sv-router";
+
+  // DO NOT REMOVE THIS IMPORT BELOW
+  // code below imports all the routes
+  import "./router";
 </script>
 
-{#if $route === "/login" || $route === "/"}
-  <Login />
-{/if}
+<Router />

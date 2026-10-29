@@ -13,6 +13,7 @@ import (
 func newRouter(deps config.Deps) *chi.Mux {
 	r := chi.NewRouter()
 
+	r.Use(corsMiddleware)
 	r.Use(loggingMiddleware)
 
 	routes.RegisterRoutes(r, deps)
