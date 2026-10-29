@@ -6,13 +6,21 @@ import (
 	"cmmppp/pkg/utils"
 	"context"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
-var ErrEmailExists = repositories.ErrEmailExists
+var (
+	ErrEmailExists  = repositories.ErrEmailExists
+	ErrInvalidID    = errors.New("invalid ID")
+	ErrUserNotFound = repositories.ErrUserNotFound
+)
 
 type (
 	UserService interface {
 		CreateUser(ctx context.Context, userInput *CreateUserInput) (*entities.User, error)
+		DeleteUser(ctx context.Context, id string) error
+		GetUsersPaginated(ctx context.Context, p *utils.PaginationMeta) (utils.PaginatedData[entities.User], error)
 	}
 
 	userService struct {
@@ -55,4 +63,26 @@ func (s *userService) CreateUser(ctx context.Context, userInput *CreateUserInput
 	}
 
 	return userEntity, nil
+}
+
+func (s *userService) DeleteUser(ctx context.Context, id string) error {
+	parsedId, err := uuid.Parse(id)
+	if err != nil {
+		return ErrInvalidID
+	}
+
+	userEntity := &entities.User{
+		ID: parsedId,
+	}
+
+	return s.repo.DeleteUser(ctx, userEntity)
+}
+
+func (s *userService) GetUsersPaginated(
+	ctx context.Context,
+	p *utils.PaginationMeta,
+) (utils.PaginatedData[entities.User], error) {
+	p.Normalize()
+
+	return s.repo.GetUsersPaginated(ctx, p)
 }

@@ -18,8 +18,9 @@ type (
 	UserRepository interface {
 		PostUser(ctx context.Context, user *entities.User) error
 		GetAllUsers(ctx context.Context) ([]entities.User, error)
-		GetUsersPaginated(ctx context.Context, p utils.Pagination) (utils.PaginatedData[entities.User], error)
+		GetUsersPaginated(ctx context.Context, p *utils.PaginationMeta) (utils.PaginatedData[entities.User], error)
 		GetUserByEmail(ctx context.Context, email string) (*entities.User, error)
+		DeleteUser(ctx context.Context, user *entities.User) error
 	}
 
 	userRepository struct {
@@ -60,10 +61,8 @@ func (r *userRepository) PostUser(ctx context.Context, user *entities.User) erro
 
 func (r *userRepository) GetUsersPaginated(
 	ctx context.Context,
-	p utils.Pagination,
+	p *utils.PaginationMeta,
 ) (utils.PaginatedData[entities.User], error) {
-	p.Normalize()
-
 	total, err := gorm.G[entities.User](r.db).Count(ctx, "*")
 	if err != nil {
 		return utils.PaginatedData[entities.User]{}, err
@@ -79,4 +78,16 @@ func (r *userRepository) GetUsersPaginated(
 	}
 
 	return utils.NewPaginatedData(users, total, p.Page, p.PageSize), nil
+}
+
+func (r *userRepository) DeleteUser(ctx context.Context, user *entities.User) error {
+	rowsAffected, err := gorm.G[entities.User](r.db).Where(user).Delete(ctx)
+	if rowsAffected == 0 {
+		return ErrUserNotFound
+	}
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

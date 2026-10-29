@@ -7,7 +7,7 @@ import (
 )
 
 func corsMiddleware(next http.Handler) http.Handler {
-	c := cors.Handler(cors.Options{
+	return cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"http://localhost:5173", "http://127.0.0.1:5173"},
 		AllowCredentials: true,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"},
@@ -17,7 +17,5 @@ func corsMiddleware(next http.Handler) http.Handler {
 		},
 		ExposedHeaders: []string{"Link"},
 		MaxAge:         300,
-	})
-
-	return c(next)
+	})(next)
 }

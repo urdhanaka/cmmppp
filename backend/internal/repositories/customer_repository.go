@@ -15,7 +15,7 @@ type (
 	CustomerRepository interface {
 		PostCustomer(ctx context.Context, customer *entities.Customer) error
 		GetAllCustomers(ctx context.Context) ([]entities.Customer, error)
-		GetCustomersPaginated(ctx context.Context, p utils.Pagination) (utils.PaginatedData[entities.Customer], error)
+		GetCustomersPaginated(ctx context.Context, p *utils.PaginationMeta) (utils.PaginatedData[entities.Customer], error)
 		DeleteCustomer(ctx context.Context, customer *entities.Customer) error
 	}
 
@@ -34,9 +34,10 @@ func (r *customerRepository) PostCustomer(ctx context.Context, customer *entitie
 	return gorm.G[entities.Customer](r.db).Create(ctx, customer)
 }
 
+
 func (r *customerRepository) GetCustomersPaginated(
 	ctx context.Context,
-	p utils.Pagination,
+	p *utils.PaginationMeta,
 ) (utils.PaginatedData[entities.Customer], error) {
 	p.Normalize()
 

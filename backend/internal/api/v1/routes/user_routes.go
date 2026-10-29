@@ -16,4 +16,5 @@ func registerUserRoutes(router chi.Router, deps config.Deps) {
 
 	router.Get("/users", h.GetUsers)
 	router.Post("/user", h.PostUser)
+	router.Delete("/user/{userID}", h.DeleteUser)
 }
