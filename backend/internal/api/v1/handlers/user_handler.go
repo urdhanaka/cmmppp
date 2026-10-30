@@ -49,7 +49,13 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := dto.NewResponseWithData(true, "successfully retrieved all users data", result)
+	// map the result to the dto
+	data := utils.PaginatedData[dto.UserResponse]{
+		Items: dto.NewUserResponses(&result.Items),
+		Meta:  result.Meta,
+	}
+
+	response := dto.NewResponseWithData(true, "successfully retrieved all users data", data)
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode response", "err", err)
@@ -64,7 +70,7 @@ func (h *UserHandler) PostUser(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(dto.NewResponse(false, err.Error()))
+		json.NewEncoder(w).Encode(dto.NewResponse(false, "invalid request body"))
 		return
 	}
 
@@ -111,6 +117,10 @@ func (h *UserHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(dto.NewResponse(false, errUserNotFound.Error()))
 			return
 		}
+
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(dto.NewResponse(false, "failed to delete user"))
+		return
 	}
 
 	response := dto.NewResponse(true, "successfully deleted the user")

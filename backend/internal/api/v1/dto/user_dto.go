@@ -1,9 +1,8 @@
 package dto
 
 import (
-	"time"
-
 	"cmmppp/internal/entities"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -14,6 +13,7 @@ type (
 	UserResponse struct {
 		ID              uuid.UUID `json:"id"`
 		Email           string    `json:"email"`
+		Name            string    `json:"name"`
 		IsPlatformAdmin bool      `json:"is_platform_admin"`
 		CreatedAt       time.Time `json:"created_at"`
 	}
@@ -29,15 +29,16 @@ func NewUserResponse(u *entities.User) UserResponse {
 	return UserResponse{
 		ID:              u.ID,
 		Email:           u.Email,
+		Name:            u.Name,
 		IsPlatformAdmin: u.IsPlatformAdmin,
 		CreatedAt:       u.CreatedAt,
 	}
 }
 
-func NewUserResponses(users []entities.User) []UserResponse {
-	resp := make([]UserResponse, len(users))
+func NewUserResponses(users *[]entities.User) []UserResponse {
+	resp := make([]UserResponse, len(*users))
 
-	for i, u := range users {
+	for i, u := range *users {
 		resp[i] = NewUserResponse(&u)
 	}
 
