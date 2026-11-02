@@ -1,12 +1,11 @@
 package handlers
 
 import (
+	"cmmppp/internal/api/v1/dto"
+	"cmmppp/internal/services"
 	"encoding/json"
 	"log/slog"
 	"net/http"
-
-	"cmmppp/internal/api/v1/dto"
-	"cmmppp/internal/services"
 )
 
 type AuthHandler struct {
@@ -35,7 +34,9 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
 
-	response := dto.NewResponseWithData(true, "successfully logged in", dto.NewLoginResponse(token))
+	response := dto.NewResponseWithData(true, "successfully logged in", &dto.LoginResponse{
+		Token: token,
+	})
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode response", "err", err)

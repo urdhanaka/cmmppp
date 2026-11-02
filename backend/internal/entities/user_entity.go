@@ -8,6 +8,7 @@ type User struct {
 	Password        string    `gorm:"type:string;not null" json:"password"`
 	Name            string    `gorm:"type:string;not null" json:"name"`
 	IsPlatformAdmin bool      `gorm:"type:bool;not null;default:false"`
+	IsActive        bool      `gorm:"type:bool;not null; default:true"`
 
 	Timestamp
 }

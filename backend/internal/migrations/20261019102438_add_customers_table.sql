@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS customers (
 );
 
 -- insert dummy customer data
-INSERT INTO customers (customer_name) VALUES ('PT. Dummy Bersama');
+INSERT INTO customers (customer_name, created_by) VALUES ('PT. Dummy Bersama', 'SYSTEM');
 
 -- +goose Down
 DROP TABLE IF EXISTS customers;

@@ -26,8 +26,8 @@ BEGIN
   FROM customers
   LIMIT 1;
 
-  INSERT INTO azure_clouds (customer_id, tenant_id, domain_name)
-  VALUES (own_customer_id, 'b6ebaf19-1aa0-434a-81ac-f887f4d4614c', 'dummy.onmicrosoft.com');
+  INSERT INTO azure_clouds (customer_id, tenant_id, domain_name, created_by)
+  VALUES (own_customer_id, 'b6ebaf19-1aa0-434a-81ac-f887f4d4614c', 'dummy.onmicrosoft.com', 'SYSTEM');
 END $$;
 -- +goose statementend
 
