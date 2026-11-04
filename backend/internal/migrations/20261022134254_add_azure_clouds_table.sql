@@ -13,7 +13,11 @@ CREATE TABLE IF NOT EXISTS azure_clouds (
 
   -- constraints
   CONSTRAINT unique_tenant_id UNIQUE(tenant_id),
-  CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+  CONSTRAINT fk_customer
+    FOREIGN KEY (customer_id)
+    REFERENCES customers(id)
+    ON DELETE CASCADE
+    ON UPDATE CASCADE
 );
 
 -- +goose statementbegin
