@@ -4,14 +4,14 @@ CREATE TABLE IF NOT EXISTS cloud_providers (
   cloud_provider_name TEXT NOT NULL,
 
   created_by TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ,
   updated_by TEXT,
-  deleted_at TIMESTAMP
+  deleted_at TIMESTAMPTZ
 );
 
 INSERT INTO cloud_providers (id, cloud_provider_name, created_by)
-VALUES (1, 'Azure', 'SYSTEM'), (2, 'GCP', 'SYSTEM'), (3, 'AWS', 'SYSTEM');
+VALUES (1, 'Azure', 'SYSTEM'), (2, 'AWS', 'SYSTEM'), (3, 'GCP', 'SYSTEM');
 
 -- +goose Down
 DROP TABLE IF EXISTS cloud_providers;

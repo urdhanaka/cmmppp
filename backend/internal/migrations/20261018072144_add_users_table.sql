@@ -1,13 +1,19 @@
 -- +goose Up
+-- make sure citext extension is enabled
+CREATE EXTENSION IF NOT EXISTS citext;
+
 -- create users table
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuidv7(),
 
   -- email and password will be used
   -- as the credential
-  email TEXT NOT NULL UNIQUE,
+  email CITEXT NOT NULL UNIQUE,
   password TEXT NOT NULL,
   name TEXT NOT NULL,
+
+  -- user_type either contains 'internal' or 'customer'
+  user_type TEXT NOT NULL DEFAULT 'internal',
   
   -- user roles (engineer, devops, etc) is defined in another table
   -- because a user can have many different roles
@@ -17,15 +23,14 @@ CREATE TABLE IF NOT EXISTS users (
   -- if a user is platform admin and is located on users table
   is_platform_admin BOOLEAN DEFAULT FALSE,
 
-  -- not to be confused with "is this row active or not"
-  -- but rather "is this user active or not"
-  is_active BOOLEAN DEFAULT TRUE,
-
   created_by TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ,
   updated_by TEXT,
-  deleted_at TIMESTAMP
+
+  -- is user active can be derived from deleted_at column
+  -- if a row has deleted_at column not null, then the user is not active
+  deleted_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users (deleted_at);

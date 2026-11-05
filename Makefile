@@ -26,5 +26,11 @@ migrate-up:
 migrate-down:
 	cd backend && goose -dir internal/migrations postgres "$(DATABASE_URL)" down
 
+migrate-down-all:
+	cd backend && goose -dir internal/migrations postgres "$(DATABASE_URL)" down-to 0
+
+migrate-status:
+	cd backend && GOOSE_DRIVER=postgres GOOSE_DBSTRING="$(DATABASE_URL)" goose -dir internal/migrations status
+
 docs-v1:
 	cd backend && swag init -g internal/api/v1/routes/doc.go --parseInternal -o docs/v1

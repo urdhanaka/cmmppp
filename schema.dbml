@@ -1,28 +1,50 @@
 // =====================================================================
-// MULTI-CLOUD PLATFORM - SCHEMA v8 (PostgreSQL, drawDB-compatible)
-// CHECK constraints live in constraints.sql (run after tables created)
+// MULTI-CLOUD PLATFORM - SCHEMA v9 (PostgreSQL, drawDB-compatible)
 //
-//   Projects - ProjectCloudAccounts - CloudAccounts
-//                                        |- AzureSubscriptions (1:1)
-//                                        |- AwsAccounts        (1:1)
-//                                        |- GcpProjects        (1:1)
+// Changes vs v8:
+//   1. snake_case everywhere (no quoted identifiers in SQL)
+//   2. password_hash nullable + user_identities table (SSO ready)
+//   3. Soft delete (deleted_at) on users, customers, projects, cloud_accounts
+//   4. is_active on customers + cloud_accounts
+//   5. access_audit_log (grant / change / revoke history)
+//   6. Provider-safe FKs: update RESTRICT -> provider can't change after insert
+//   7. Expiry indexes for rotation-alert jobs
+//   8. azure_app_registrations.is_default (enforce "one default per tenant")
+//   9. Extra CHECKs listed below (role_arn, domain_name)
+//  10. effective_access view (SQL at bottom of file)
+//
+//   projects - project_cloud_accounts - cloud_accounts
+//                                          |- azure_subscriptions (1:1)
+//                                          |- aws_accounts        (1:1)
+//                                          |- gcp_projects        (1:1)
 //
 // Users are either:
-//   internal -> engineers etc. Access via CustomerUsers / CloudAccountUsers / ProjectUsers
-//   customer -> customer staff. Belong to exactly ONE customer (Users.customerId).
+//   internal -> engineers etc. Access via customer_users / cloud_account_users / project_users
+//   customer -> customer staff. Belong to exactly ONE customer (users.customer_id).
 //               Can NEVER appear in any access table (DB enforced).
 //
-// CloudAccounts is the common identity for an Azure subscription,
-// AWS account, or GCP project. Provider tables contain provider-specific data.
+// Style rule: fixed small sets = ENUM (user_type, environment_type,
+//   access_scope_type). Sets that grow with the product = TABLE (cloud_providers).
 //
-// Additional SQL required outside this file:
-//   1. CREATE EXTENSION citext for case-insensitive Users.email.
-//   2. CHECK constraints listed below.
-//   3. updatedAt trigger for tables containing updatedAt.
-//   4. Deferred constraint trigger ensuring every CloudAccounts row has exactly
-//      one extension matching cloudProviderId. Create base + extension in one transaction.
+// Additional SQL required outside this file (constraints.sql):
+//   1. CREATE EXTENSION citext;
+//   2. CHECK constraints listed in table comments.
+//   3. updated_at trigger on every table with updated_at.
+//   4. Deferred constraint trigger: every cloud_accounts row has exactly one
+//      extension row matching cloud_provider_id. Create base + extension in one tx.
+//   5. Partial unique indexes (DBML cannot express WHERE), all "WHERE deleted_at IS NULL":
+//        users(email)
+//        customers(customer_name)
+//        projects(customer_id, project_name)
+//        cloud_accounts(customer_id, display_name)
+//      and: azure_app_registrations(azure_cloud_id) WHERE is_default
+//   6. Audit trigger on customer_users / cloud_account_users / project_users
+//      writing to access_audit_log (INSERT / UPDATE of role_id / DELETE).
+//   7. Guard hard DELETE on customers: revoke DELETE from app role, only a
+//      purge job / admin role may hard delete. App uses deleted_at.
 //
-// Delete a cloud account by deleting the CloudAccounts row.
+// Delete flow: app sets deleted_at. Hard delete = purge job after retention.
+// Hard delete of cloud_accounts row still cascades to extension + access rows.
 // =====================================================================
 
 
@@ -46,51 +68,76 @@ Enum access_scope_type {
     project
 }
 
+Enum audit_action {
+    grant
+    change
+    revoke
+}
+
 
 // ================= CORE =================
 
-Table Users [headercolor: #175e7a] {
+Table users [headercolor: #175e7a] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    email citext [ not null, unique ]                  // case-insensitive; requires citext extension
-    passwordHash varchar(255) [ not null ]              // hash only, never plain password
-    userType user_type [ not null, default: 'internal' ]
-    customerId uuid                                     // home customer. ONLY for customer users
-    isPlatformAdmin boolean [ not null, default: false ] // platform CRUD only
-    isActive boolean [ not null, default: true ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    email citext [ not null ]                           // case-insensitive; partial unique WHERE deleted_at IS NULL
+    password_hash varchar(255)                          // NULL = SSO-only user. hash only, never plain
+    user_type user_type [ not null, default: 'internal' ]
+    customer_id uuid                                    // home customer. ONLY for customer users
+    is_platform_admin boolean [ not null, default: false ] // platform CRUD only
+    is_active boolean [ not null, default: true ]
+    last_login_at timestamptz
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
+    deleted_at timestamptz                              // soft delete
 
     Indexes {
-        (id, userType) [ unique ]                       // target for composite FKs from access tables
-        customerId
+        (id, user_type) [ unique ]                      // target for composite FKs from access tables
+        customer_id
+        email
     }
 
     // CHECK constraints: see constraints.sql
-    // 1. internal user => customerId IS NULL
-    //    customer user => customerId IS NOT NULL
-    // 2. isPlatformAdmin = true => userType = 'internal'
+    // 1. internal user => customer_id IS NULL
+    //    customer user => customer_id IS NOT NULL
+    // 2. is_platform_admin = true => user_type = 'internal'
+    // 3. is_active = true AND deleted_at IS NULL OR is_active = false OR deleted_at IS NOT NULL (optional)
+    // Login rule (app): password_hash IS NOT NULL OR a user_identities row exists.
 }
 
-Table Roles [headercolor: #175e7a] {
+// SSO identities (Entra, Google, any OIDC). One user can have many.
+Table user_identities [headercolor: #175e7a] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    roleName varchar(100) [ not null, unique ]
+    user_id uuid [ not null ]
+    issuer varchar(255) [ not null ]                    // OIDC issuer URL
+    subject varchar(255) [ not null ]                   // stable "sub" claim
+    created_at timestamptz [ not null, default: `now()` ]
+    last_login_at timestamptz
+
+    Indexes {
+        (issuer, subject) [ unique ]
+        user_id
+    }
+}
+
+Table roles [headercolor: #175e7a] {
+    id uuid [ pk, not null, default: `gen_random_uuid()` ]
+    role_name varchar(100) [ not null, unique ]
 
     Note: '''
       Seed: Cloud Engineer, FinOps, DevOps.
-      "Admin" = Users.isPlatformAdmin. "Customer" = Users.userType = customer.
+      "Admin" = users.is_platform_admin. "Customer" = users.user_type = customer.
       Neither is a row here.
-      Allowed scopes are defined in RoleAllowedScopes.
+      Allowed scopes are defined in role_allowed_scopes.
     '''
 }
 
-// Declarative replacement for role-scope rules enforced only by application code.
-Table RoleAllowedScopes [headercolor: #175e7a] {
+Table role_allowed_scopes [headercolor: #175e7a] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    roleId uuid [ not null ]
-    scopeType access_scope_type [ not null ]
+    role_id uuid [ not null ]
+    scope_type access_scope_type [ not null ]
 
     Indexes {
-        (roleId, scopeType) [ unique ]                  // target for composite FKs from access tables
+        (role_id, scope_type) [ unique ]                // target for composite FKs from access tables
     }
 
     Note: '''
@@ -101,70 +148,80 @@ Table RoleAllowedScopes [headercolor: #175e7a] {
     '''
 }
 
-Table Customers [headercolor: #175e7a] {
+Table customers [headercolor: #175e7a] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerName varchar(255) [ not null, unique ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
-}
-
-Table Projects [headercolor: #175e7a] {
-    id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerId uuid [ not null ]
-    projectName varchar(255) [ not null ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    customer_name varchar(255) [ not null ]             // partial unique WHERE deleted_at IS NULL
+    is_active boolean [ not null, default: true ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
+    deleted_at timestamptz
 
     Indexes {
-        (customerId, projectName) [ unique ]
-        (id, customerId) [ unique ]                    // target for composite FK
+        customer_name
+    }
+}
+
+Table projects [headercolor: #175e7a] {
+    id uuid [ pk, not null, default: `gen_random_uuid()` ]
+    customer_id uuid [ not null ]
+    project_name varchar(255) [ not null ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
+    deleted_at timestamptz
+
+    Indexes {
+        (customer_id, project_name)                     // partial unique WHERE deleted_at IS NULL
+        (id, customer_id) [ unique ]                    // target for composite FK
     }
 }
 
 
 // ================= CLOUD BASE (any provider) =================
 
-Table CloudProviders [headercolor: #2e7a3d] {
+Table cloud_providers [headercolor: #2e7a3d] {
     id int [ pk, increment, not null ]
-    providerName varchar(50) [ not null, unique ]
+    provider_name varchar(50) [ not null, unique ]
 
     Note: 'Seed fixed IDs in every environment: 1 = Azure, 2 = AWS, 3 = GCP.'
 }
 
 // One row = one Azure subscription / AWS account / GCP project
-Table CloudAccounts [headercolor: #2e7a3d] {
+Table cloud_accounts [headercolor: #2e7a3d] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerId uuid [ not null ]
-    cloudProviderId int [ not null ]
-    displayName varchar(255) [ not null ]              // e.g. "acme-azure-prod"
+    customer_id uuid [ not null ]
+    cloud_provider_id int [ not null ]
+    display_name varchar(255) [ not null ]              // e.g. "acme-azure-prod"
     environment environment_type [ not null ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    is_active boolean [ not null, default: true ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
+    deleted_at timestamptz
 
     Indexes {
-        (customerId, displayName) [ unique ]
-        (id, customerId) [ unique ]                    // customer-safe composite FK target
-        (id, cloudProviderId) [ unique ]               // provider-safe composite FK target
-        cloudProviderId
+        (customer_id, display_name)                     // partial unique WHERE deleted_at IS NULL
+        (id, customer_id) [ unique ]                    // customer-safe composite FK target
+        (id, cloud_provider_id) [ unique ]              // provider-safe composite FK target
+        cloud_provider_id
     }
 
     Note: '''
-      Extension provider is enforced by composite FKs + CHECK constraints.
-      Exactly one extension per CloudAccounts row requires a deferred constraint trigger.
+      Extension provider enforced by composite FKs + CHECK constraints.
+      Provider cannot change after insert (extension FK is update: restrict).
+      Exactly one extension per row needs the deferred constraint trigger.
     '''
 }
 
 // Many-to-many: project uses many cloud accounts (any provider, any mix)
-Table ProjectCloudAccounts [headercolor: #2e7a3d] {
+Table project_cloud_accounts [headercolor: #2e7a3d] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    projectId uuid [ not null ]
-    cloudAccountId uuid [ not null ]
-    customerId uuid [ not null ]                       // lets DB block cross-customer links
-    createdAt timestamptz [ not null, default: `now()` ]
+    project_id uuid [ not null ]
+    cloud_account_id uuid [ not null ]
+    customer_id uuid [ not null ]                       // lets DB block cross-customer links
+    created_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (projectId, cloudAccountId) [ unique ]
-        (cloudAccountId, projectId)                    // reverse lookup + cloud account delete path
+        (project_id, cloud_account_id) [ unique ]
+        (cloud_account_id, project_id)                  // reverse lookup + cloud account delete path
     }
 }
 
@@ -172,67 +229,74 @@ Table ProjectCloudAccounts [headercolor: #2e7a3d] {
 // ================= AZURE =================
 
 // One row = one customer Azure tenant
-Table AzureClouds [headercolor: #8a4b2e] {
+Table azure_clouds [headercolor: #8a4b2e] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerId uuid [ not null ]
-    tenantId uuid [ not null, unique ]
-    domainName varchar(255) [ not null ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    customer_id uuid [ not null ]
+    tenant_id uuid [ not null, unique ]
+    domain_name varchar(255) [ not null ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (id, customerId) [ unique ]                    // customer-safe composite FK target
-        customerId
-    }
-}
-
-// Usually one per tenant, sometimes one per subscription
-Table AzureAppRegistrations [headercolor: #8a4b2e] {
-    id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    azureCloudId uuid [ not null ]
-    clientId uuid [ not null, unique ]
-    clientSecretRef varchar(500) [ not null ]          // Key Vault URI, never raw secret
-    secretExpiresAt timestamptz                        // rotation reminder
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
-
-    Indexes {
-        (id, azureCloudId) [ unique ]                  // target for composite FK
-        azureCloudId
-    }
-}
-
-Table AzureSubscriptions [headercolor: #8a4b2e] {
-    cloudAccountId uuid [ pk, not null ]               // = CloudAccounts.id (1:1)
-    customerId uuid [ not null ]                       // must match CloudAccounts + AzureClouds
-    cloudProviderId int [ not null ]                   // locked to Azure by CHECK
-    azureCloudId uuid [ not null ]                     // which tenant
-    appRegistrationId uuid [ not null ]                // which registration for API calls
-    subscriptionId uuid [ not null, unique ]           // Azure's own subscription GUID
-
-    Indexes {
-        azureCloudId
-        (appRegistrationId, azureCloudId)
+        (id, customer_id) [ unique ]                    // customer-safe composite FK target
+        customer_id
     }
 
     // CHECK constraints: see constraints.sql
-    // cloudProviderId = 1
+    // domain_name ~* '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+}
+
+// Usually one per tenant, sometimes one per subscription
+Table azure_app_registrations [headercolor: #8a4b2e] {
+    id uuid [ pk, not null, default: `gen_random_uuid()` ]
+    azure_cloud_id uuid [ not null ]
+    client_id uuid [ not null, unique ]
+    client_secret_ref varchar(500) [ not null ]         // Key Vault URI, never raw secret
+    secret_expires_at timestamptz                       // rotation reminder
+    is_default boolean [ not null, default: false ]     // partial unique (azure_cloud_id) WHERE is_default
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
+
+    Indexes {
+        (id, azure_cloud_id) [ unique ]                 // target for composite FK
+        azure_cloud_id
+        secret_expires_at                               // rotation alert job
+    }
+}
+
+Table azure_subscriptions [headercolor: #8a4b2e] {
+    cloud_account_id uuid [ pk, not null ]              // = cloud_accounts.id (1:1)
+    customer_id uuid [ not null ]                       // must match cloud_accounts + azure_clouds
+    cloud_provider_id int [ not null ]                  // locked to Azure by CHECK
+    azure_cloud_id uuid [ not null ]                    // which tenant
+    app_registration_id uuid [ not null ]               // which registration for API calls
+    subscription_id uuid [ not null, unique ]           // Azure's own subscription GUID. Global unique on purpose.
+
+    Indexes {
+        azure_cloud_id
+        (app_registration_id, azure_cloud_id)
+    }
+
+    // CHECK constraints: see constraints.sql
+    // cloud_provider_id = 1
 }
 
 
 // ================= AWS =================
 // One IAM role per AWS account. Platform assumes role -> short-lived token.
 
-Table AwsAccounts [headercolor: #b5651d] {
-    cloudAccountId uuid [ pk, not null ]               // = CloudAccounts.id (1:1)
-    cloudProviderId int [ not null ]                   // locked to AWS by CHECK
-    accountId varchar(12) [ not null, unique ]         // AWS 12-digit account number
-    roleArn varchar(500) [ not null ]
-    externalId varchar(255) [ not null, unique ]       // random, unique per account
+Table aws_accounts [headercolor: #b5651d] {
+    cloud_account_id uuid [ pk, not null ]              // = cloud_accounts.id (1:1)
+    cloud_provider_id int [ not null ]                  // locked to AWS by CHECK
+    account_id varchar(12) [ not null, unique ]         // AWS 12-digit number. Global unique on purpose.
+    role_arn varchar(500) [ not null ]
+    external_id varchar(255) [ not null, unique ]       // random, unique per account
 
     // CHECK constraints: see constraints.sql
-    // 1. cloudProviderId = 2
-    // 2. accountId ~ '^[0-9]{12}$'
+    // 1. cloud_provider_id = 2
+    // 2. account_id ~ '^[0-9]{12}$'
+    // 3. role_arn ~ '^arn:aws(-cn|-us-gov)?:iam::[0-9]{12}:role/.+$'
+    // 4. role_arn contains account_id: position(account_id in role_arn) > 0
 }
 
 
@@ -240,113 +304,142 @@ Table AwsAccounts [headercolor: #b5651d] {
 // Platform impersonates service account -> short-lived token.
 
 // Usually one per customer, sometimes one per GCP project
-Table GcpServiceAccounts [headercolor: #4a6fa5] {
+Table gcp_service_accounts [headercolor: #4a6fa5] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerId uuid [ not null ]
-    serviceAccountEmail varchar(255) [ not null, unique ]
-    keyRef varchar(500)                                // NULL = impersonation (preferred)
-    keyExpiresAt timestamptz
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    customer_id uuid [ not null ]
+    service_account_email varchar(255) [ not null, unique ]
+    key_ref varchar(500)                                // NULL = impersonation (preferred)
+    key_expires_at timestamptz
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (id, customerId) [ unique ]                    // customer-safe composite FK target
-        customerId
+        (id, customer_id) [ unique ]                    // customer-safe composite FK target
+        customer_id
+        key_expires_at                                  // rotation alert job
     }
 
     // CHECK constraints: see constraints.sql
-    // keyExpiresAt IS NULL OR keyRef IS NOT NULL
+    // key_expires_at IS NULL OR key_ref IS NOT NULL
 }
 
-Table GcpProjects [headercolor: #4a6fa5] {
-    cloudAccountId uuid [ pk, not null ]               // = CloudAccounts.id (1:1)
-    customerId uuid [ not null ]                       // must match CloudAccounts + service account
-    cloudProviderId int [ not null ]                   // locked to GCP by CHECK
-    gcpProjectId varchar(30) [ not null, unique ]
-    serviceAccountId uuid [ not null ]
+Table gcp_projects [headercolor: #4a6fa5] {
+    cloud_account_id uuid [ pk, not null ]              // = cloud_accounts.id (1:1)
+    customer_id uuid [ not null ]                       // must match cloud_accounts + service account
+    cloud_provider_id int [ not null ]                  // locked to GCP by CHECK
+    gcp_project_id varchar(30) [ not null, unique ]     // Global unique on purpose.
+    service_account_id uuid [ not null ]
 
     Indexes {
-        (serviceAccountId, customerId)
+        (service_account_id, customer_id)
     }
 
     // CHECK constraints: see constraints.sql
-    // 1. cloudProviderId = 3
-    // 2. gcpProjectId ~ '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+    // 1. cloud_provider_id = 3
+    // 2. gcp_project_id ~ '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
 }
 
 
 // ================= ACCESS (internal users only) =================
 // One role per user per scope. Change role = UPDATE, never 2nd INSERT.
-// Effective access = UNION of all 3 tables. No role "wins".
-// userType column locked to 'internal' + composite FK to Users(id, userType)
+// Effective access = UNION of all 3 tables. No role "wins". Use view effective_access.
+// user_type locked to 'internal' + composite FK to users(id, user_type)
 //   -> customer users can NEVER be inserted here. DB enforced.
-// scopeType is locked per table + composite FK to RoleAllowedScopes
+// scope_type locked per table + composite FK to role_allowed_scopes
 //   -> only roles allowed for that scope can be assigned. DB enforced.
+// Every change logged by trigger into access_audit_log.
 
 // Customer-level. FinOps only -> cascades to ALL cloud accounts + projects of customer
-Table CustomerUsers [headercolor: #6a4c93] {
+Table customer_users [headercolor: #6a4c93] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    customerId uuid [ not null ]
-    userId uuid [ not null ]
-    userType user_type [ not null, default: 'internal' ]
-    roleId uuid [ not null ]
-    scopeType access_scope_type [ not null, default: 'customer' ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    customer_id uuid [ not null ]
+    user_id uuid [ not null ]
+    user_type user_type [ not null, default: 'internal' ]
+    role_id uuid [ not null ]
+    scope_type access_scope_type [ not null, default: 'customer' ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (customerId, userId) [ unique ]
-        userId
-        (roleId, scopeType)
+        (customer_id, user_id) [ unique ]
+        user_id
+        (role_id, scope_type)
     }
 
     // CHECK constraints: see constraints.sql
-    // 1. userType = 'internal'
-    // 2. scopeType = 'customer'
+    // 1. user_type = 'internal'
+    // 2. scope_type = 'customer'
 }
 
-// Cloud account level. Cascades to every project linked via ProjectCloudAccounts
-Table CloudAccountUsers [headercolor: #6a4c93] {
+// Cloud account level. Cascades to every project linked via project_cloud_accounts
+Table cloud_account_users [headercolor: #6a4c93] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    cloudAccountId uuid [ not null ]
-    userId uuid [ not null ]
-    userType user_type [ not null, default: 'internal' ]
-    roleId uuid [ not null ]
-    scopeType access_scope_type [ not null, default: 'cloud_account' ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    cloud_account_id uuid [ not null ]
+    user_id uuid [ not null ]
+    user_type user_type [ not null, default: 'internal' ]
+    role_id uuid [ not null ]
+    scope_type access_scope_type [ not null, default: 'cloud_account' ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (cloudAccountId, userId) [ unique ]
-        userId
-        (roleId, scopeType)
+        (cloud_account_id, user_id) [ unique ]
+        user_id
+        (role_id, scope_type)
     }
 
     // CHECK constraints: see constraints.sql
-    // 1. userType = 'internal'
-    // 2. scopeType = 'cloud_account'
+    // 1. user_type = 'internal'
+    // 2. scope_type = 'cloud_account'
 }
 
 // Project level (direct)
-Table ProjectUsers [headercolor: #6a4c93] {
+Table project_users [headercolor: #6a4c93] {
     id uuid [ pk, not null, default: `gen_random_uuid()` ]
-    projectId uuid [ not null ]
-    userId uuid [ not null ]
-    userType user_type [ not null, default: 'internal' ]
-    roleId uuid [ not null ]
-    scopeType access_scope_type [ not null, default: 'project' ]
-    createdAt timestamptz [ not null, default: `now()` ]
-    updatedAt timestamptz [ not null, default: `now()` ]
+    project_id uuid [ not null ]
+    user_id uuid [ not null ]
+    user_type user_type [ not null, default: 'internal' ]
+    role_id uuid [ not null ]
+    scope_type access_scope_type [ not null, default: 'project' ]
+    created_at timestamptz [ not null, default: `now()` ]
+    updated_at timestamptz [ not null, default: `now()` ]
 
     Indexes {
-        (projectId, userId) [ unique ]
-        userId
-        (roleId, scopeType)
+        (project_id, user_id) [ unique ]
+        user_id
+        (role_id, scope_type)
     }
 
     // CHECK constraints: see constraints.sql
-    // 1. userType = 'internal'
-    // 2. scopeType = 'project'
+    // 1. user_type = 'internal'
+    // 2. scope_type = 'project'
+}
+
+
+// ================= AUDIT =================
+// Deliberately NO foreign keys: history must survive deletes of users,
+// roles, scopes. Filled by trigger on the 3 access tables.
+
+Table access_audit_log [headercolor: #7a1f1f] {
+    id bigint [ pk, increment, not null ]
+    occurred_at timestamptz [ not null, default: `now()` ]
+    action audit_action [ not null ]
+    scope_type access_scope_type [ not null ]
+    scope_id uuid [ not null ]                          // customer / cloud account / project id
+    customer_id uuid                                    // owning customer, for tenant filtering
+    target_user_id uuid [ not null ]                    // who got / lost access
+    old_role_id uuid
+    new_role_id uuid
+    actor_user_id uuid                                  // who did it (set via SET LOCAL app.user_id)
+    details jsonb                                       // free extra context (ip, ticket, reason)
+
+    Indexes {
+        (customer_id, occurred_at)
+        (target_user_id, occurred_at)
+        (scope_type, scope_id, occurred_at)
+    }
+
+    Note: 'Append-only. Revoke UPDATE/DELETE from app role. Partition by month if it grows.'
 }
 
 
@@ -355,46 +448,89 @@ Table ProjectUsers [headercolor: #6a4c93] {
 // "no action" = blocks direct delete of parent still in use,
 // but lets a full customer cascade delete finish cleanly.
 
-Ref: Users.customerId > Customers.id [ delete: cascade ]   // delete customer -> delete its customer users
+Ref: users.customer_id > customers.id [ delete: cascade ]   // purge customer -> purge its customer users
+Ref: user_identities.user_id > users.id [ delete: cascade ]
 
-Ref: Projects.customerId > Customers.id [ delete: cascade ]
+Ref: projects.customer_id > customers.id [ delete: cascade ]
 
-Ref: RoleAllowedScopes.roleId > Roles.id [ delete: cascade ]
+Ref: role_allowed_scopes.role_id > roles.id [ delete: cascade ]
 
-Ref: CloudAccounts.customerId > Customers.id [ delete: cascade ]
-Ref: CloudAccounts.cloudProviderId > CloudProviders.id [ delete: restrict ]
+Ref: cloud_accounts.customer_id > customers.id [ delete: cascade ]
+Ref: cloud_accounts.cloud_provider_id > cloud_providers.id [ delete: restrict ]
 
-Ref: ProjectCloudAccounts.(projectId, customerId) > Projects.(id, customerId) [ delete: cascade ]
-Ref: ProjectCloudAccounts.(cloudAccountId, customerId) > CloudAccounts.(id, customerId) [ delete: cascade ]
+Ref: project_cloud_accounts.(project_id, customer_id) > projects.(id, customer_id) [ delete: cascade ]
+Ref: project_cloud_accounts.(cloud_account_id, customer_id) > cloud_accounts.(id, customer_id) [ delete: cascade ]
 
 // Azure
-Ref: AzureClouds.customerId > Customers.id [ delete: cascade ]
-Ref: AzureAppRegistrations.azureCloudId > AzureClouds.id [ delete: cascade ]
+Ref: azure_clouds.customer_id > customers.id [ delete: cascade ]
+Ref: azure_app_registrations.azure_cloud_id > azure_clouds.id [ delete: cascade ]
 
-Ref: AzureSubscriptions.(cloudAccountId, customerId) > CloudAccounts.(id, customerId) [ delete: cascade ]
-Ref: AzureSubscriptions.(cloudAccountId, cloudProviderId) > CloudAccounts.(id, cloudProviderId) [ delete: cascade ]
-Ref: AzureSubscriptions.(azureCloudId, customerId) > AzureClouds.(id, customerId) [ delete: no action ]
-Ref: AzureSubscriptions.(appRegistrationId, azureCloudId) > AzureAppRegistrations.(id, azureCloudId) [ delete: no action ]
+Ref: azure_subscriptions.(cloud_account_id, customer_id) > cloud_accounts.(id, customer_id) [ delete: cascade ]
+Ref: azure_subscriptions.(cloud_account_id, cloud_provider_id) > cloud_accounts.(id, cloud_provider_id) [ delete: cascade, update: restrict ]
+Ref: azure_subscriptions.(azure_cloud_id, customer_id) > azure_clouds.(id, customer_id) [ delete: no action ]
+Ref: azure_subscriptions.(app_registration_id, azure_cloud_id) > azure_app_registrations.(id, azure_cloud_id) [ delete: no action ]
 
 // AWS
-Ref: AwsAccounts.(cloudAccountId, cloudProviderId) > CloudAccounts.(id, cloudProviderId) [ delete: cascade ]
+Ref: aws_accounts.(cloud_account_id, cloud_provider_id) > cloud_accounts.(id, cloud_provider_id) [ delete: cascade, update: restrict ]
 
 // GCP
-Ref: GcpServiceAccounts.customerId > Customers.id [ delete: cascade ]
+Ref: gcp_service_accounts.customer_id > customers.id [ delete: cascade ]
 
-Ref: GcpProjects.(cloudAccountId, customerId) > CloudAccounts.(id, customerId) [ delete: cascade ]
-Ref: GcpProjects.(cloudAccountId, cloudProviderId) > CloudAccounts.(id, cloudProviderId) [ delete: cascade ]
-Ref: GcpProjects.(serviceAccountId, customerId) > GcpServiceAccounts.(id, customerId) [ delete: no action ]
+Ref: gcp_projects.(cloud_account_id, customer_id) > cloud_accounts.(id, customer_id) [ delete: cascade ]
+Ref: gcp_projects.(cloud_account_id, cloud_provider_id) > cloud_accounts.(id, cloud_provider_id) [ delete: cascade, update: restrict ]
+Ref: gcp_projects.(service_account_id, customer_id) > gcp_service_accounts.(id, customer_id) [ delete: no action ]
 
 // Access
-Ref: CustomerUsers.customerId > Customers.id [ delete: cascade ]
-Ref: CustomerUsers.(userId, userType) > Users.(id, userType) [ delete: cascade ]
-Ref: CustomerUsers.(roleId, scopeType) > RoleAllowedScopes.(roleId, scopeType) [ delete: no action ]
+Ref: customer_users.customer_id > customers.id [ delete: cascade ]
+Ref: customer_users.(user_id, user_type) > users.(id, user_type) [ delete: cascade ]
+Ref: customer_users.(role_id, scope_type) > role_allowed_scopes.(role_id, scope_type) [ delete: no action ]
 
-Ref: CloudAccountUsers.cloudAccountId > CloudAccounts.id [ delete: cascade ]
-Ref: CloudAccountUsers.(userId, userType) > Users.(id, userType) [ delete: cascade ]
-Ref: CloudAccountUsers.(roleId, scopeType) > RoleAllowedScopes.(roleId, scopeType) [ delete: no action ]
+Ref: cloud_account_users.cloud_account_id > cloud_accounts.id [ delete: cascade ]
+Ref: cloud_account_users.(user_id, user_type) > users.(id, user_type) [ delete: cascade ]
+Ref: cloud_account_users.(role_id, scope_type) > role_allowed_scopes.(role_id, scope_type) [ delete: no action ]
 
-Ref: ProjectUsers.projectId > Projects.id [ delete: cascade ]
-Ref: ProjectUsers.(userId, userType) > Users.(id, userType) [ delete: cascade ]
-Ref: ProjectUsers.(roleId, scopeType) > RoleAllowedScopes.(roleId, scopeType) [ delete: no action ]
+Ref: project_users.project_id > projects.id [ delete: cascade ]
+Ref: project_users.(user_id, user_type) > users.(id, user_type) [ delete: cascade ]
+Ref: project_users.(role_id, scope_type) > role_allowed_scopes.(role_id, scope_type) [ delete: no action ]
+
+
+// =====================================================================
+// effective_access VIEW (run in constraints.sql; DBML cannot define views)
+// One row per (user, role, cloud account) and per (user, role, project).
+// Soft-deleted / inactive rows excluded.
+//
+// CREATE VIEW effective_access AS
+//   -- customer grant -> every cloud account of customer
+//   SELECT cu.user_id, cu.role_id, 'customer'::access_scope_type AS via,
+//          ca.id AS cloud_account_id, NULL::uuid AS project_id
+//   FROM customer_users cu
+//   JOIN cloud_accounts ca ON ca.customer_id = cu.customer_id
+//   WHERE ca.deleted_at IS NULL AND ca.is_active
+//   UNION ALL
+//   -- customer grant -> every project of customer
+//   SELECT cu.user_id, cu.role_id, 'customer', NULL, p.id
+//   FROM customer_users cu
+//   JOIN projects p ON p.customer_id = cu.customer_id
+//   WHERE p.deleted_at IS NULL
+//   UNION ALL
+//   -- cloud account grant -> the account
+//   SELECT cau.user_id, cau.role_id, 'cloud_account', ca.id, NULL
+//   FROM cloud_account_users cau
+//   JOIN cloud_accounts ca ON ca.id = cau.cloud_account_id
+//   WHERE ca.deleted_at IS NULL AND ca.is_active
+//   UNION ALL
+//   -- cloud account grant -> every linked project
+//   SELECT cau.user_id, cau.role_id, 'cloud_account', NULL, p.id
+//   FROM cloud_account_users cau
+//   JOIN project_cloud_accounts pca ON pca.cloud_account_id = cau.cloud_account_id
+//   JOIN projects p ON p.id = pca.project_id
+//   WHERE p.deleted_at IS NULL
+//   UNION ALL
+//   -- direct project grant
+//   SELECT pu.user_id, pu.role_id, 'project', NULL, p.id
+//   FROM project_users pu
+//   JOIN projects p ON p.id = pu.project_id
+//   WHERE p.deleted_at IS NULL;
+//
+// Also filter in app: users.is_active AND users.deleted_at IS NULL.
+// =====================================================================

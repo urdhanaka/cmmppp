@@ -11,8 +11,14 @@ CREATE TABLE IF NOT EXISTS cloud_accounts (
 
   display_name TEXT NOT NULL,
 
+  created_by TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ,
+  updated_by TEXT,
+  deleted_at TIMESTAMPTZ,
+
   -- constraints
-  CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+  CONSTRAINT fk_customers FOREIGN KEY (customer_id) REFERENCES customers(id),
   CONSTRAINT fk_cloud_providers FOREIGN KEY (cloud_provider_id) REFERENCES cloud_providers(id)
 );
 

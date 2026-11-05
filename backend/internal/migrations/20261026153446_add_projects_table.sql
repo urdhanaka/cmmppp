@@ -9,10 +9,10 @@ CREATE TABLE IF NOT EXISTS projects (
   project_name TEXT NOT NULL,
 
   created_by TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ,
   updated_by TEXT,
-  deleted_at TIMESTAMP,
+  deleted_at TIMESTAMPTZ,
 
   -- constraints
   CONSTRAINT fk_customer FOREIGN KEY (customer_id) REFERENCES customers(id)

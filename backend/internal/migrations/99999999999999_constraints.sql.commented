@@ -1,0 +1,441 @@
+-- =====================================================================
+-- constraints.sql  -  companion to multicloud_schema_v9.dbml
+-- PostgreSQL 13+ (gen_random_uuid built in)
+--
+-- Run order:
+--   0. CREATE EXTENSION citext  (BEFORE creating tables; users.email is citext)
+--   1. Create tables from the DBML export
+--   2. Run this file (sections 1-9)
+--
+-- Sections:
+--   1. Extension
+--   2. CHECK constraints
+--   3. Partial unique indexes (soft delete aware)
+--   4. updated_at trigger
+--   5. Deferred trigger: exactly one provider extension per cloud account
+--   6. Access audit trigger
+--   7. Hard delete guard + purge job
+--   8. effective_access view
+--   9. Seed data
+-- =====================================================================
+
+
+-- =====================================================================
+-- 1. EXTENSION
+-- =====================================================================
+CREATE EXTENSION IF NOT EXISTS citext;
+
+
+-- =====================================================================
+-- 2. CHECK CONSTRAINTS
+-- =====================================================================
+
+-- users
+ALTER TABLE users
+    ADD CONSTRAINT users_customer_scope_chk CHECK (
+        (user_type = 'internal' AND customer_id IS NULL)
+     OR (user_type = 'customer' AND customer_id IS NOT NULL)
+    ),
+    ADD CONSTRAINT users_admin_internal_chk CHECK (
+        NOT is_platform_admin OR user_type = 'internal'
+    );
+
+-- azure
+ALTER TABLE azure_clouds
+    ADD CONSTRAINT azure_clouds_domain_chk CHECK (
+        domain_name ~* '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+    );
+
+ALTER TABLE azure_subscriptions
+    ADD CONSTRAINT azure_subscriptions_provider_chk CHECK (cloud_provider_id = 1);
+
+-- aws
+ALTER TABLE aws_accounts
+    ADD CONSTRAINT aws_accounts_provider_chk   CHECK (cloud_provider_id = 2),
+    ADD CONSTRAINT aws_accounts_account_id_chk CHECK (account_id ~ '^[0-9]{12}$'),
+    ADD CONSTRAINT aws_accounts_role_arn_chk   CHECK (
+        role_arn ~ '^arn:aws(-cn|-us-gov)?:iam::[0-9]{12}:role/.+$'
+    ),
+    ADD CONSTRAINT aws_accounts_role_arn_acct_chk CHECK (
+        position(account_id in role_arn) > 0
+    );
+
+-- gcp
+ALTER TABLE gcp_service_accounts
+    ADD CONSTRAINT gcp_sa_key_expiry_chk CHECK (
+        key_expires_at IS NULL OR key_ref IS NOT NULL
+    );
+
+ALTER TABLE gcp_projects
+    ADD CONSTRAINT gcp_projects_provider_chk   CHECK (cloud_provider_id = 3),
+    ADD CONSTRAINT gcp_projects_project_id_chk CHECK (
+        gcp_project_id ~ '^[a-z][a-z0-9-]{4,28}[a-z0-9]$'
+    );
+
+-- access tables: internal users only, scope locked per table
+ALTER TABLE customer_users
+    ADD CONSTRAINT customer_users_user_type_chk  CHECK (user_type = 'internal'),
+    ADD CONSTRAINT customer_users_scope_type_chk CHECK (scope_type = 'customer');
+
+ALTER TABLE cloud_account_users
+    ADD CONSTRAINT cloud_account_users_user_type_chk  CHECK (user_type = 'internal'),
+    ADD CONSTRAINT cloud_account_users_scope_type_chk CHECK (scope_type = 'cloud_account');
+
+ALTER TABLE project_users
+    ADD CONSTRAINT project_users_user_type_chk  CHECK (user_type = 'internal'),
+    ADD CONSTRAINT project_users_scope_type_chk CHECK (scope_type = 'project');
+
+
+-- =====================================================================
+-- 3. PARTIAL UNIQUE INDEXES (soft delete aware)
+-- Deleted rows free their names. Active rows stay unique.
+-- =====================================================================
+CREATE UNIQUE INDEX users_email_active_uq
+    ON users (email) WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX customers_name_active_uq
+    ON customers (customer_name) WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX projects_name_active_uq
+    ON projects (customer_id, project_name) WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX cloud_accounts_name_active_uq
+    ON cloud_accounts (customer_id, display_name) WHERE deleted_at IS NULL;
+
+-- one default app registration per Azure tenant
+CREATE UNIQUE INDEX azure_app_reg_one_default_uq
+    ON azure_app_registrations (azure_cloud_id) WHERE is_default;
+
+
+-- =====================================================================
+-- 4. updated_at TRIGGER
+-- =====================================================================
+CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.updated_at := now();
+    RETURN NEW;
+END;
+$$;
+
+DO $$
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY[
+        'users', 'customers', 'projects', 'cloud_accounts',
+        'azure_clouds', 'azure_app_registrations', 'gcp_service_accounts',
+        'customer_users', 'cloud_account_users', 'project_users'
+    ]
+    LOOP
+        EXECUTE format(
+            'CREATE TRIGGER %I BEFORE UPDATE ON %I
+             FOR EACH ROW EXECUTE FUNCTION set_updated_at()',
+            t || '_set_updated_at', t);
+    END LOOP;
+END;
+$$;
+
+
+-- =====================================================================
+-- 5. DEFERRED TRIGGER: exactly one provider extension per cloud account
+-- Fires at COMMIT. Create cloud_accounts row + extension row in ONE tx.
+-- Catches: no extension, two extensions, wrong provider extension,
+--          extension deleted while base row stays.
+-- Provider change after insert is blocked by FK update: restrict + CHECKs.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION cloud_account_extension_check() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id       uuid;
+    v_provider int;
+    v_azure    int;
+    v_aws      int;
+    v_gcp      int;
+BEGIN
+    IF TG_TABLE_NAME = 'cloud_accounts' THEN
+        v_id := NEW.id;
+    ELSIF TG_OP = 'DELETE' THEN
+        v_id := OLD.cloud_account_id;
+    ELSE
+        v_id := NEW.cloud_account_id;
+    END IF;
+
+    SELECT cloud_provider_id INTO v_provider
+    FROM cloud_accounts WHERE id = v_id;
+
+    IF NOT FOUND THEN
+        RETURN NULL;   -- base row gone (cascade delete). Nothing to check.
+    END IF;
+
+    SELECT count(*) INTO v_azure FROM azure_subscriptions WHERE cloud_account_id = v_id;
+    SELECT count(*) INTO v_aws   FROM aws_accounts        WHERE cloud_account_id = v_id;
+    SELECT count(*) INTO v_gcp   FROM gcp_projects        WHERE cloud_account_id = v_id;
+
+    IF v_azure + v_aws + v_gcp <> 1
+       OR (v_provider = 1 AND v_azure <> 1)
+       OR (v_provider = 2 AND v_aws   <> 1)
+       OR (v_provider = 3 AND v_gcp   <> 1)
+    THEN
+        RAISE EXCEPTION
+            'cloud_account % (provider %) must have exactly one matching extension row (azure=%, aws=%, gcp=%)',
+            v_id, v_provider, v_azure, v_aws, v_gcp
+            USING ERRCODE = 'check_violation';
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE CONSTRAINT TRIGGER cloud_accounts_ext_trg
+    AFTER INSERT OR UPDATE ON cloud_accounts
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cloud_account_extension_check();
+
+CREATE CONSTRAINT TRIGGER azure_subscriptions_ext_trg
+    AFTER INSERT OR UPDATE OR DELETE ON azure_subscriptions
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cloud_account_extension_check();
+
+CREATE CONSTRAINT TRIGGER aws_accounts_ext_trg
+    AFTER INSERT OR UPDATE OR DELETE ON aws_accounts
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cloud_account_extension_check();
+
+CREATE CONSTRAINT TRIGGER gcp_projects_ext_trg
+    AFTER INSERT OR UPDATE OR DELETE ON gcp_projects
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION cloud_account_extension_check();
+
+
+-- =====================================================================
+-- 6. ACCESS AUDIT TRIGGER
+-- Logs grant / change (role changed) / revoke on the 3 access tables.
+-- Actor: app sets   SET LOCAL app.user_id = '<uuid>';   per transaction.
+-- Optional context: SET LOCAL app.audit_details = '{"reason":"..."}';
+-- =====================================================================
+CREATE OR REPLACE FUNCTION audit_access_change() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    r           jsonb;
+    v_action    audit_action;
+    v_scope     access_scope_type;
+    v_scope_id  uuid;
+    v_customer  uuid;
+    v_old_role  uuid;
+    v_new_role  uuid;
+    v_actor     uuid;
+    v_details   jsonb;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        v_action := 'grant';
+        r := to_jsonb(NEW);
+        v_new_role := NEW.role_id;
+    ELSIF TG_OP = 'UPDATE' THEN
+        IF NEW.role_id IS NOT DISTINCT FROM OLD.role_id THEN
+            RETURN NULL;   -- not a role change. Skip.
+        END IF;
+        v_action := 'change';
+        r := to_jsonb(NEW);
+        v_old_role := OLD.role_id;
+        v_new_role := NEW.role_id;
+    ELSE
+        v_action := 'revoke';
+        r := to_jsonb(OLD);
+        v_old_role := OLD.role_id;
+    END IF;
+
+    IF TG_TABLE_NAME = 'customer_users' THEN
+        v_scope    := 'customer';
+        v_scope_id := (r->>'customer_id')::uuid;
+        v_customer := v_scope_id;
+    ELSIF TG_TABLE_NAME = 'cloud_account_users' THEN
+        v_scope    := 'cloud_account';
+        v_scope_id := (r->>'cloud_account_id')::uuid;
+        SELECT customer_id INTO v_customer FROM cloud_accounts WHERE id = v_scope_id;
+    ELSE
+        v_scope    := 'project';
+        v_scope_id := (r->>'project_id')::uuid;
+        SELECT customer_id INTO v_customer FROM projects WHERE id = v_scope_id;
+    END IF;
+
+    v_actor   := nullif(current_setting('app.user_id', true), '')::uuid;
+    v_details := nullif(current_setting('app.audit_details', true), '')::jsonb;
+
+    INSERT INTO access_audit_log (
+        action, scope_type, scope_id, customer_id,
+        target_user_id, old_role_id, new_role_id, actor_user_id, details
+    ) VALUES (
+        v_action, v_scope, v_scope_id, v_customer,
+        (r->>'user_id')::uuid, v_old_role, v_new_role, v_actor, v_details
+    );
+
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER customer_users_audit
+    AFTER INSERT OR UPDATE OR DELETE ON customer_users
+    FOR EACH ROW EXECUTE FUNCTION audit_access_change();
+
+CREATE TRIGGER cloud_account_users_audit
+    AFTER INSERT OR UPDATE OR DELETE ON cloud_account_users
+    FOR EACH ROW EXECUTE FUNCTION audit_access_change();
+
+CREATE TRIGGER project_users_audit
+    AFTER INSERT OR UPDATE OR DELETE ON project_users
+    FOR EACH ROW EXECUTE FUNCTION audit_access_change();
+
+-- append-only: block edits and deletes of the log itself
+CREATE OR REPLACE FUNCTION audit_log_immutable() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'access_audit_log is append-only';
+END;
+$$;
+
+CREATE TRIGGER access_audit_log_immutable
+    BEFORE UPDATE OR DELETE ON access_audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_immutable();
+-- If you need to purge old audit rows, drop this trigger in a maintenance tx.
+
+
+-- =====================================================================
+-- 7. HARD DELETE GUARD + PURGE JOB
+-- App normally sets deleted_at. Hard DELETE only allowed when the
+-- transaction sets   app.allow_purge = 'on'   (purge job below / DBA).
+-- Cascades from a purge pass the same guard because same transaction.
+-- =====================================================================
+CREATE OR REPLACE FUNCTION guard_hard_delete() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF coalesce(current_setting('app.allow_purge', true), '') <> 'on' THEN
+        RAISE EXCEPTION
+            'hard delete of % blocked. Set deleted_at instead, or run purge_deleted().',
+            TG_TABLE_NAME
+            USING ERRCODE = 'restrict_violation';
+    END IF;
+    RETURN OLD;
+END;
+$$;
+
+CREATE TRIGGER customers_guard_delete
+    BEFORE DELETE ON customers
+    FOR EACH ROW EXECUTE FUNCTION guard_hard_delete();
+
+CREATE TRIGGER projects_guard_delete
+    BEFORE DELETE ON projects
+    FOR EACH ROW EXECUTE FUNCTION guard_hard_delete();
+
+CREATE TRIGGER cloud_accounts_guard_delete
+    BEFORE DELETE ON cloud_accounts
+    FOR EACH ROW EXECUTE FUNCTION guard_hard_delete();
+
+CREATE TRIGGER users_guard_delete
+    BEFORE DELETE ON users
+    FOR EACH ROW EXECUTE FUNCTION guard_hard_delete();
+
+-- Purge rows soft-deleted longer than retention. Run from cron / pg_cron,
+-- under a privileged role. Order: customers first (cascades most).
+CREATE OR REPLACE FUNCTION purge_deleted(retention interval DEFAULT interval '90 days')
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM set_config('app.allow_purge', 'on', true);   -- transaction-local
+
+    DELETE FROM customers      WHERE deleted_at < now() - retention;
+    DELETE FROM cloud_accounts WHERE deleted_at < now() - retention;
+    DELETE FROM projects       WHERE deleted_at < now() - retention;
+    DELETE FROM users          WHERE deleted_at < now() - retention;
+END;
+$$;
+
+-- Lock it down (adjust role names to yours):
+-- REVOKE EXECUTE ON FUNCTION purge_deleted(interval) FROM PUBLIC;
+-- GRANT  EXECUTE ON FUNCTION purge_deleted(interval) TO purge_role;
+-- REVOKE UPDATE, DELETE ON access_audit_log FROM app_role;
+
+
+-- =====================================================================
+-- 8. effective_access VIEW
+-- One row per (user, role, cloud account) or (user, role, project).
+-- Excludes soft-deleted / inactive users, customers, accounts, projects.
+-- via = which access table granted it.
+-- =====================================================================
+CREATE OR REPLACE VIEW effective_access AS
+    -- customer grant -> every cloud account of the customer
+    SELECT cu.user_id, cu.role_id, 'customer'::access_scope_type AS via,
+           ca.id AS cloud_account_id, NULL::uuid AS project_id
+    FROM customer_users cu
+    JOIN users u         ON u.id = cu.user_id AND u.is_active AND u.deleted_at IS NULL
+    JOIN customers c     ON c.id = cu.customer_id AND c.is_active AND c.deleted_at IS NULL
+    JOIN cloud_accounts ca ON ca.customer_id = c.id AND ca.is_active AND ca.deleted_at IS NULL
+
+    UNION ALL
+    -- customer grant -> every project of the customer
+    SELECT cu.user_id, cu.role_id, 'customer'::access_scope_type,
+           NULL::uuid, p.id
+    FROM customer_users cu
+    JOIN users u     ON u.id = cu.user_id AND u.is_active AND u.deleted_at IS NULL
+    JOIN customers c ON c.id = cu.customer_id AND c.is_active AND c.deleted_at IS NULL
+    JOIN projects p  ON p.customer_id = c.id AND p.deleted_at IS NULL
+
+    UNION ALL
+    -- cloud account grant -> the account
+    SELECT cau.user_id, cau.role_id, 'cloud_account'::access_scope_type,
+           ca.id, NULL::uuid
+    FROM cloud_account_users cau
+    JOIN users u           ON u.id = cau.user_id AND u.is_active AND u.deleted_at IS NULL
+    JOIN cloud_accounts ca ON ca.id = cau.cloud_account_id AND ca.is_active AND ca.deleted_at IS NULL
+    JOIN customers c       ON c.id = ca.customer_id AND c.is_active AND c.deleted_at IS NULL
+
+    UNION ALL
+    -- cloud account grant -> every project linked to the account
+    SELECT cau.user_id, cau.role_id, 'cloud_account'::access_scope_type,
+           NULL::uuid, p.id
+    FROM cloud_account_users cau
+    JOIN users u           ON u.id = cau.user_id AND u.is_active AND u.deleted_at IS NULL
+    JOIN cloud_accounts ca ON ca.id = cau.cloud_account_id AND ca.is_active AND ca.deleted_at IS NULL
+    JOIN project_cloud_accounts pca ON pca.cloud_account_id = ca.id
+    JOIN projects p        ON p.id = pca.project_id AND p.deleted_at IS NULL
+    JOIN customers c       ON c.id = ca.customer_id AND c.is_active AND c.deleted_at IS NULL
+
+    UNION ALL
+    -- direct project grant
+    SELECT pu.user_id, pu.role_id, 'project'::access_scope_type,
+           NULL::uuid, p.id
+    FROM project_users pu
+    JOIN users u     ON u.id = pu.user_id AND u.is_active AND u.deleted_at IS NULL
+    JOIN projects p  ON p.id = pu.project_id AND p.deleted_at IS NULL
+    JOIN customers c ON c.id = p.customer_id AND c.is_active AND c.deleted_at IS NULL;
+
+
+-- =====================================================================
+-- 9. SEED DATA
+-- =====================================================================
+INSERT INTO cloud_providers (id, provider_name) VALUES
+    (1, 'Azure'),
+    (2, 'AWS'),
+    (3, 'GCP')
+ON CONFLICT DO NOTHING;
+
+-- keep the serial/identity sequence ahead of the fixed ids
+SELECT setval(pg_get_serial_sequence('cloud_providers', 'id'),
+              GREATEST((SELECT max(id) FROM cloud_providers), 3));
+
+INSERT INTO roles (role_name) VALUES
+    ('Cloud Engineer'),
+    ('FinOps'),
+    ('DevOps')
+ON CONFLICT (role_name) DO NOTHING;
+
+INSERT INTO role_allowed_scopes (role_id, scope_type)
+SELECT r.id, v.scope_type::access_scope_type
+FROM (VALUES
+    ('FinOps',         'customer'),
+    ('FinOps',         'cloud_account'),
+    ('Cloud Engineer', 'cloud_account'),
+    ('Cloud Engineer', 'project'),
+    ('DevOps',         'project')
+) AS v(role_name, scope_type)
+JOIN roles r ON r.role_name = v.role_name
+ON CONFLICT (role_id, scope_type) DO NOTHING;

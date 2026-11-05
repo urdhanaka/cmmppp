@@ -4,10 +4,10 @@ CREATE TABLE IF NOT EXISTS customers (
   customer_name TEXT NOT NULL,
 
   created_by TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ,
   updated_by TEXT,
-  deleted_at TIMESTAMP
+  deleted_at TIMESTAMPTZ
 );
 
 -- insert dummy customer data
