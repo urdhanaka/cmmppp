@@ -6,3 +6,6 @@ node_modules
 
 # environment file
 config.yaml
+
+# binary output
+bin
