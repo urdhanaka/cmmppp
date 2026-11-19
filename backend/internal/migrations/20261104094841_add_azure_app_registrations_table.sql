@@ -8,8 +8,8 @@ CREATE TABLE IF NOT EXISTS azure_app_registrations (
 
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ,
   updated_by TEXT,
+  updated_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ,
 
   CONSTRAINT unique_client_id UNIQUE(client_id),

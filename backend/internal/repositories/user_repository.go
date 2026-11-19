@@ -2,7 +2,7 @@ package repositories
 
 import (
 	"cmmppp/internal/entities"
-	"cmmppp/pkg/utils"
+	"cmmppp/internal/utils"
 	"context"
 	"errors"
 

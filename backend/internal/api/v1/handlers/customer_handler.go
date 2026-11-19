@@ -3,9 +3,11 @@ package handlers
 import (
 	"cmmppp/internal/api/v1/dto"
 	"cmmppp/internal/services"
+	"cmmppp/internal/utils"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 )
 
 type CustomerHandler struct {
@@ -17,15 +19,28 @@ func NewCustomerHandler(service services.CustomerService) *CustomerHandler {
 }
 
 func (h *CustomerHandler) GetCustomers(w http.ResponseWriter, r *http.Request) {
-	customers, err := h.service.GetAllCustomers(r.Context())
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+
+	w.Header().Set("Content-Type", "application/json")
+
+	customers, err := h.service.GetCustomersPaginated(r.Context(), &utils.PaginationMeta{
+		Page:     page,
+		PageSize: pageSize,
+	})
 	if err != nil {
 		slog.ErrorContext(r.Context(), "failed to fetch customers", "err", err)
 		http.Error(w, "failed to fetch customers", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(dto.NewCustomerResponses(customers)); err != nil {
+	data := utils.PaginatedData[dto.CustomerResponse]{
+		Items: dto.NewCustomerResponses(&customers.Items),
+	}
+
+	response := dto.NewResponseWithData(true, "successfully retrieved all customers data", data)
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode response", "err", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}

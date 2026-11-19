@@ -64,7 +64,7 @@ const docTemplate = `{
                 "is_platform_admin": {
                     "type": "boolean"
                 },
-                "user_id": {
+                "name": {
                     "type": "string"
                 }
             }

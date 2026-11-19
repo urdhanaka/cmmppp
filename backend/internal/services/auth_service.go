@@ -1,27 +1,35 @@
 package services
 
 import (
-	"cmmppp/internal/config"
 	"cmmppp/internal/repositories"
-	"cmmppp/pkg/utils"
+	"cmmppp/internal/utils"
 	"context"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
-var ErrInvalidCredentials = errors.New("invalid credentials")
+var (
+	ErrInvalidCredentials = errors.New("invalid credentials")
+	ErrInvalidToken       = errors.New("invalid token")
+)
 
 type (
 	AuthService interface {
 		Login(ctx context.Context, email, password string) (string, error)
 	}
 
+	TokenGenerator interface {
+		GenerateToken(userID uuid.UUID, role string) (string, error)
+	}
+
 	authService struct {
 		userRepo     repositories.UserRepository
-		tokenManager *config.TokenManager
+		tokenManager TokenGenerator
 	}
 )
 
-func NewAuthService(userRepo repositories.UserRepository, tokenManager *config.TokenManager) AuthService {
+func NewAuthService(userRepo repositories.UserRepository, tokenManager TokenGenerator) AuthService {
 	return &authService{
 		userRepo:     userRepo,
 		tokenManager: tokenManager,
@@ -38,7 +46,7 @@ func (s *authService) Login(ctx context.Context, email, password string) (string
 		return "", err
 	}
 
-	if !utils.ComparePassword(user.Password, password) {
+	if !utils.ComparePassword(user.PasswordHash, password) {
 		return "", ErrInvalidCredentials
 	}
 

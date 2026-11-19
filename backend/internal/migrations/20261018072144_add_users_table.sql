@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- email and password will be used
   -- as the credential
   email CITEXT NOT NULL UNIQUE,
-  password TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
   name TEXT NOT NULL,
 
   -- user_type either contains 'internal' or 'customer'
@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
 
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ,
   updated_by TEXT,
+  updated_at TIMESTAMPTZ,
 
   -- is user active can be derived from deleted_at column
   -- if a row has deleted_at column not null, then the user is not active

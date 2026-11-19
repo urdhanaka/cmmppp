@@ -25,7 +25,7 @@ type TokenManager struct {
 func NewTokenManager(config EnvConfig) *TokenManager {
 	return &TokenManager{
 		secret: []byte(config.JWT.Secret),
-		expiry: 30 * time.Minute,
+		expiry: 60 * time.Minute,
 		issuer: "Cloud Management Platform",
 	}
 }

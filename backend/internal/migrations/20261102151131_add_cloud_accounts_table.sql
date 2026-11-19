@@ -13,13 +13,14 @@ CREATE TABLE IF NOT EXISTS cloud_accounts (
 
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ,
   updated_by TEXT,
+  updated_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ,
 
   -- constraints
   CONSTRAINT fk_customers FOREIGN KEY (customer_id) REFERENCES customers(id),
-  CONSTRAINT fk_cloud_providers FOREIGN KEY (cloud_provider_id) REFERENCES cloud_providers(id)
+  CONSTRAINT fk_cloud_providers FOREIGN KEY (cloud_provider_id) REFERENCES cloud_providers(id),
+  CONSTRAINT cloud_accounts_id_customer_uq UNIQUE (id, customer_id)
 );
 
 -- +goose Down

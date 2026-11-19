@@ -10,7 +10,7 @@ definitions:
         type: string
       is_platform_admin:
         type: boolean
-      user_id:
+      name:
         type: string
     type: object
 host: localhost:8000

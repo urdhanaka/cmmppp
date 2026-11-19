@@ -3,7 +3,7 @@ package handlers
 import (
 	"cmmppp/internal/api/v1/dto"
 	"cmmppp/internal/services"
-	"cmmppp/pkg/utils"
+	"cmmppp/internal/utils"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -49,7 +49,6 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// map the result to the dto
 	data := utils.PaginatedData[dto.UserResponse]{
 		Items: dto.NewUserResponses(&result.Items),
 		Meta:  result.Meta,

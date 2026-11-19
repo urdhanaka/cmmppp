@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Deps holds every external connection the server needs. Add a field here
+// Deps holds every dependencies needs. Add a field here
 // (Redis, Kafka, ...) and wire it in cmd/server/server.go — no router
 // rewiring needed elsewhere.
 type Deps struct {

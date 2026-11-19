@@ -24,14 +24,22 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		slog.ErrorContext(r.Context(), "failed to login", "err", err)
+
+		response := dto.NewResponse(false, err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
 		return
 	}
 
 	token, err := h.service.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "failed to login", "err", err)
-		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+
+		response := dto.NewResponse(false, err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(response)
+		return
 	}
 
 	response := dto.NewResponseWithData(true, "successfully logged in", &dto.LoginResponse{
@@ -41,5 +49,6 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		slog.ErrorContext(r.Context(), "failed to encode response", "err", err)
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		return
 	}
 }

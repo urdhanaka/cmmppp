@@ -1,10 +1,9 @@
 package dto
 
 import (
+	"cmmppp/internal/entities"
 	"errors"
 	"time"
-
-	"cmmppp/internal/entities"
 
 	"github.com/google/uuid"
 )
@@ -45,10 +44,10 @@ func NewCustomerResponse(c entities.Customer) CustomerResponse {
 	}
 }
 
-func NewCustomerResponses(customers []entities.Customer) []CustomerResponse {
-	resp := make([]CustomerResponse, len(customers))
+func NewCustomerResponses(customers *[]entities.Customer) []CustomerResponse {
+	resp := make([]CustomerResponse, len(*customers))
 
-	for i, c := range customers {
+	for i, c := range *customers {
 		resp[i] = NewCustomerResponse(c)
 	}
 

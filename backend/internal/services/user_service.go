@@ -3,9 +3,10 @@ package services
 import (
 	"cmmppp/internal/entities"
 	"cmmppp/internal/repositories"
-	"cmmppp/pkg/utils"
+	"cmmppp/internal/utils"
 	"context"
 	"errors"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -48,10 +49,15 @@ func (s *userService) CreateUser(ctx context.Context, userInput *CreateUserInput
 		return nil, err
 	}
 
+	now := time.Now()
+
 	userEntity := &entities.User{
-		Email:    userInput.Email,
-		Name:     userInput.Name,
-		Password: hashedPassword,
+		Email:        userInput.Email,
+		Name:         userInput.Name,
+		PasswordHash: hashedPassword,
+		Timestamp: entities.Timestamp{
+			CreatedAt: now,
+		},
 	}
 
 	if err := s.repo.PostUser(ctx, userEntity); err != nil {

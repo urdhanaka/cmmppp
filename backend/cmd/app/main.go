@@ -1,12 +1,11 @@
 package main
 
 import (
-	"log/slog"
-	"os"
-
 	"cmmppp/internal/config"
 	"cmmppp/internal/logger"
 	"cmmppp/internal/server"
+	"log/slog"
+	"os"
 )
 
 func main() {
@@ -24,6 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	// JWT token manager
 	tokenManager := config.NewTokenManager(*cfg)
 
 	server.Run(config.Deps{

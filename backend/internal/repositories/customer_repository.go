@@ -2,7 +2,7 @@ package repositories
 
 import (
 	"cmmppp/internal/entities"
-	"cmmppp/pkg/utils"
+	"cmmppp/internal/utils"
 	"context"
 	"errors"
 
@@ -34,13 +34,10 @@ func (r *customerRepository) PostCustomer(ctx context.Context, customer *entitie
 	return gorm.G[entities.Customer](r.db).Create(ctx, customer)
 }
 
-
 func (r *customerRepository) GetCustomersPaginated(
 	ctx context.Context,
 	p *utils.PaginationMeta,
 ) (utils.PaginatedData[entities.Customer], error) {
-	p.Normalize()
-
 	total, err := gorm.G[entities.Customer](r.db).Count(ctx, "*")
 	if err != nil {
 		return utils.PaginatedData[entities.Customer]{}, err

@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS azure_clouds (
 
   created_by TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ,
   updated_by TEXT,
+  updated_at TIMESTAMPTZ,
   deleted_at TIMESTAMPTZ,
 
   -- constraints
